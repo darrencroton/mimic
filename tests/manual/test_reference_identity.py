@@ -26,7 +26,9 @@ Galaxies field, created rows included, through the unchanged
 ``scripts/compare_cross_format_identity.py`` with its ``--compare-created`` pairing (both runs of a
 leg come from one driver). HDF5 creation properties (chunking, compression, fill value) are not
 compared. The only permitted differences are named provenance (``RunProperties/Version`` build
-attributes, ``RunEndTime``, ``metadata/version_info.json``, worktree or scratch path prefixes).
+attributes, ``RunEndTime``, ``metadata/version_info.json``, worktree or scratch path prefixes, and a
+``metadata/output_schema.json`` that differs only in ``source_md5`` where each side's value is its
+own build's digest (``tests/framework/parity_gate.py``)).
 
 The reference is built in a worktree cached per ``(commit, model, simulation)`` under
 ``output/snapshot-global-identity/worktrees/`` (the snapshot-global battery's cache and name

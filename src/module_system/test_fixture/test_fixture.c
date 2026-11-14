@@ -18,7 +18,11 @@
  * creates records through module_create_record(), so tests can drive the
  * record-creation contract through a real run. Creation is legal only from
  * process_full_halo, so a configuration that sets the parameter must place the
- * fixture there; any other placement fails at the first creation call.
+ * fixture there; any other placement fails at the first creation call. The
+ * optional TestFixtureCreatedContent parameter gives every record it creates
+ * that mass in the rate fixture's hot and cold reservoirs (default 0: a created
+ * record holds no fixture content), which is a discrete change to the conserved
+ * total rate_fixture_mass and is declared as such in module_info.yaml.
  *
  * Vision Principle #1: Physics-Agnostic Core Infrastructure
  * - Infrastructure tests MUST use this fixture, not production modules
@@ -26,6 +30,7 @@
  * - Maintains clean separation between core and physics
  */
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,6 +63,16 @@ static int ENABLE_LOGGING;
  * so every configuration written before the parameter existed is unchanged.
  */
 static int CREATE_RECORDS = 0;
+
+/**
+ * @brief   Fixture mass given to the hot and cold reservoirs of every created record
+ *
+ * Read from the optional TestFixtureCreatedContent parameter; absent means 0,
+ * which leaves every created record exactly as module_create_record() returned
+ * it (zero in every fixture property), so every configuration written before
+ * the parameter existed is unchanged.
+ */
+static double CREATED_CONTENT = 0.0;
 
 /**
  * @brief   Execution counter for tracking module calls
@@ -108,11 +123,24 @@ int test_fixture_init(void) {
     }
   }
 
+  CREATED_CONTENT = 0.0;
+  if (model_has_param("TestFixtureCreatedContent")) {
+    if (model_get_double("TestFixtureCreatedContent", &CREATED_CONTENT) != 0) {
+      ERROR_LOG("Failed to read TestFixtureCreatedContent from model_parameters");
+      return -1;
+    }
+    if (!isfinite(CREATED_CONTENT) || CREATED_CONTENT < 0.0) {
+      ERROR_LOG("TestFixtureCreatedContent = %g must be finite and >= 0", CREATED_CONTENT);
+      return -1;
+    }
+  }
+
   INFO_LOG("Test fixture module initialized");
   INFO_LOG("  ⚠️  WARNING: Testing infrastructure only - NOT FOR PRODUCTION");
   INFO_LOG("  DummyParameter = %.3f", DUMMY_PARAMETER);
   INFO_LOG("  EnableLogging = %d", ENABLE_LOGGING);
   INFO_LOG("  CreateRecords = %d", CREATE_RECORDS);
+  INFO_LOG("  CreatedContent = %.3f", CREATED_CONTENT);
 
   return 0;
 }
@@ -125,8 +153,10 @@ int test_fixture_init(void) {
  * - Logs processing if EnableLogging=1
  * - When CREATE_RECORDS > 0, creates that many records on every Type 0 row
  *   through module_create_record(), sets TestDummyProperty = DUMMY_PARAMETER on
- *   each, and logs one TEST_FIXTURE_CREATE line per host (regardless of
- *   EnableLogging). Only rows present when the call began are hosts.
+ *   each, sets RateFixtureHot and RateFixtureCold to CREATED_CONTENT on each
+ *   (zero unless TestFixtureCreatedContent is set), and logs one
+ *   TEST_FIXTURE_CREATE line per host (regardless of EnableLogging). Only rows
+ *   present when the call began are hosts.
  *
  * This validates the module system can execute modules and access properties.
  *
@@ -187,6 +217,8 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
         return -1;
       }
       created->galaxy->TestDummyProperty = (float)DUMMY_PARAMETER;
+      created->galaxy->RateFixtureHot = CREATED_CONTENT;
+      created->galaxy->RateFixtureCold = CREATED_CONTENT;
     }
     if (CREATE_RECORDS > 0) {
       INFO_LOG("TEST_FIXTURE_CREATE: host=%lld created=%d", halos[i].UniqueGalaxyID,

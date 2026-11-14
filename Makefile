@@ -87,17 +87,17 @@ FORCE:
 # Production builds (the default) carry no framework test scaffolding. Test
 # builds (TEST_BUILD=yes) additionally compile the framework test fixture/event
 # modules under src/module_system/test_* and merge their test-only property
-# metadata (TestDummyProperty, from src/module_system/test_fixture/
-# test_properties.yaml) into the generated schema. The generation scripts read
-# MIMIC_TEST_BUILD via scripts/discovery.py. The test targets below build with
-# TEST_BUILD=yes; tests/unit/run_tests.sh sets MIMIC_TEST_BUILD directly.
+# metadata (TestDummyProperty and the seven RateFixture* properties, from
+# src/module_system/test_fixture/test_properties.yaml) into the generated schema. The
+# generation scripts read MIMIC_TEST_BUILD via scripts/discovery.py. The test targets below
+# build with TEST_BUILD=yes; tests/unit/run_tests.sh sets MIMIC_TEST_BUILD directly.
 TEST_BUILD ?= no
 
 # Test builds use a separate object tree (build/test) so they never share
 # compiled objects with a production build. This matters because the two modes
-# generate different code (the test build adds the fixture modules and
-# TestDummyProperty): a shared object tree could otherwise link a stale
-# production module registry into a freshly generated test binary. The
+# generate different code (the test build adds the fixture modules and their
+# properties, TestDummyProperty and RateFixture*): a shared object tree could otherwise
+# link a stale production module registry into a freshly generated test binary. The
 # executable name is intentionally left as $(EXEC) (mimic) so every test
 # harness, including model-local module tests, finds it without special casing.
 ifeq ($(TEST_BUILD),yes)
@@ -127,6 +127,12 @@ SOURCES += $(SRC_DIR)/module_system/test_event_consumer_alpha/test_event_consume
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_beta/test_event_consumer_beta.c
 SOURCES += $(SRC_DIR)/module_system/test_event_producer_b/test_event_producer_b.c
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_gamma/test_event_consumer_gamma.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_supply/test_rate_supply.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_formation/test_rate_formation.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_feedback/test_rate_feedback.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_stripping/test_rate_stripping.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_faults/test_rate_faults.c
+SOURCES += $(SRC_DIR)/module_system/test_rate_jump/test_rate_jump.c
 endif
 
 OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SOURCES))
@@ -320,7 +326,7 @@ GIT_DIR := $(shell git rev-parse --git-dir 2>/dev/null)
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-reference-identity tests-converter tests-bench test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific tests-horizontal-v3 tests-snapshot-global tests-snapshot-global-sham tests-snapshot-global-hod tests-snapshot-global-identity tests-reference-identity tests-rate tests-converter tests-bench test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -395,8 +401,9 @@ PROP_YAML := src/core/core_properties.yaml \
              $(wildcard $(MODEL_ROOT)/model_properties.yaml) \
              $(wildcard $(SIMULATION_ROOT)/halo_properties.yaml)
 
-# Test builds merge fixture-owned test-only properties (TestDummyProperty) so
-# the stamp re-fires if that file changes; production builds omit it entirely.
+# Test builds merge fixture-owned test-only properties (TestDummyProperty and the
+# RateFixture* properties) so the stamp re-fires if that file changes; production builds
+# omit it entirely.
 ifeq ($(TEST_BUILD),yes)
 PROP_YAML += $(SRC_DIR)/module_system/test_fixture/test_properties.yaml
 endif
@@ -508,6 +515,7 @@ help:
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
 	@echo "  make tests-reference-identity REFERENCE_COMMIT=<hash> - Require byte-identical galaxy output between an ancestor commit and HEAD on real mini-Millennium (manual, 8 legs; the byte gate for performance work; REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS/_LDFLAGS gate a candidate build)"
 	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
+	@echo "  make tests-rate         - Run the rate battery: the rate fixtures and test_rate_jump on halos-only, vertical against horizontal on the real mini-Millennium data (explicit fixed and dynamic, implicit fixed, and explicit with the rate coefficients scaled by 1e3) and the horizontal run in three orders of the rate modules, then on the forest_blocks fixture serial against -np 1, 2, 3, 4, 8 and forest_chunks 2, 3, 8, every order of the four rate modules under both schemes, and record creation (created rows with non-zero fixture state) across task counts; needs mpicc/mpirun and the real data; RATE_BATTERY_ARGS=--offline skips the real-data leg; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; rebuild with make afterwards. The integrator cost driver is separate: python3 tests/manual/run_rate_cost.py (needs a built tree)"
 	@echo "  make tests-converter    - Run the converter self-tests (manual, ~6 min; not run by make tests)"
 	@echo "  make tests-bench        - Run the bench self-tests (manual, ~5 min; the capture tests need ./mimic built and the mini-millennium trees and otherwise skip; not run by make tests)"
 	@echo "  make tests summary      - Run make tests with concise warning/failure/skip output"
@@ -962,6 +970,21 @@ tests-snapshot-global-identity:
 # build/reference_identity.log itself.
 tests-reference-identity:
 	@$(PYTHON) tests/manual/test_reference_identity.py
+
+# Rate battery (tests/manual/run_rate_battery.py has the legs): the rate fixtures and
+# test_rate_jump on halos-only, built as test builds. Cross-driver identity on the real
+# mini-Millennium data in both layouts (explicit fixed and dynamic, implicit fixed, and explicit
+# with the rate coefficients scaled by 1e3), the horizontal run in three orders of the rate
+# modules, then on the committed forest_blocks fixture: serial against USE-MPI=yes at -np 1, 2,
+# 3, 4 and 8 and against input.forest_chunks 2, 3 and 8, every order of the four rate modules
+# under both schemes, and record creation across task counts. RATE_BATTERY_ARGS=--offline runs
+# the legs that need no real data (CI's step); --only <leg> is a development aid whose run is
+# not the gate. Needs mpicc/mpirun; MPIRUN (environment, default mpirun) is the launcher. Writes
+# build/rate_tests.log, restores the caller's generated code; rebuild with `make` after. The
+# integrator cost driver is not part of it: python3 tests/manual/run_rate_cost.py (standard
+# library only, needs a built tree).
+tests-rate:
+	@MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) tests/manual/run_rate_battery.py $(RATE_BATTERY_ARGS)
 
 # Reference source-dump harness: read-only, loads forests through the selected
 # vertical reader and dumps their literal link fields and core payload for the

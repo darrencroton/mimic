@@ -84,7 +84,7 @@ Use existing Mimic naming where it is already established and works well. Treat 
 - Struct types use `struct Name` rather than typedef aliases for project-owned structs.
 - Enums and macros use uppercase names where they represent constants, modes, or logging/test helpers, such as `PROCESSING_MODE_BY_GALAXY`, `ERROR_LOG`, and `TEST_ASSERT`.
 - Generated property fields keep their metadata names. Do not rename properties merely to fit C naming style.
-- Runtime module lifecycle functions use `<module_name>_init`, `<module_name>_cleanup`, and the processing callback for each advertised mode family: `<module_name>_process` for the FoF modes and `<module_name>_process_snapshot` for the snapshot mode. A module should implement only the callbacks for the families it advertises.
+- Runtime module lifecycle functions use `<module_name>_init`, `<module_name>_cleanup`, and the processing callback for each advertised mode family: `<module_name>_process` for the FoF modes, `<module_name>_process_snapshot` for the snapshot mode and `<module_name>_rates` for the rate mode. A module should implement only the callbacks for the families it advertises. The coefficient slot of a declared transfer is the generated constant `<MODULE>_TRANSFER_<NAME>`; a transfer's `name` is a C identifier, unique in its module also when upper-cased.
 
 ### Python
 
@@ -96,7 +96,8 @@ Use existing Mimic naming where it is already established and works well. Treat 
 ### Metadata
 
 - Module names are lowercase `snake_case`.
-- Processing mode strings use the established configuration names: the FoF modes `process_full_halo`, `process_per_event`, and `process_by_galaxy`, and the snapshot mode `process_snapshot`.
+- Processing mode strings use the established configuration names: the FoF modes `process_full_halo`, `process_per_event`, and `process_by_galaxy`, the snapshot mode `process_snapshot`, and the rate mode `process_rates`.
+- A conserved total named in a property's `reservoir:` mapping is an identifier-like `snake_case` name (`rate_fixture_mass`), shared verbatim by every `changes_totals` entry that refers to it.
 - Property names follow the existing scientific/output schema names, often `PascalCase` or legacy SAGE-compatible names such as `Mvir`, `dT`, and `ColdGas`. Preserve these names because they are part of the generated API and output schema.
 - Parameter names follow the model package convention and should match the user-facing run YAML exactly.
 
@@ -183,7 +184,7 @@ Metadata is structural source code. Treat it with the same care as C and Python.
 - Provide a `description` that is meaningful to users inspecting metadata or output files.
 - Include units for physical quantities. Use `dimensionless` when no unit applies.
 - Document non-obvious `range`, `sentinels`, `init_repeat`, `output_convert`, and transport-buffer behavior with short inline comments.
-- Declare module dependencies completely in `module_info.yaml`: properties, parameters, tests, docs, supported processing modes, and event contracts where applicable.
+- Declare module dependencies completely in `module_info.yaml`: properties, parameters, tests, docs, supported processing modes, and event contracts where applicable. A rate module also declares every transfer it moves under `rates:` (both ends, the reservoirs or `external`), whether its law reads the FoF central (`reads_central`), and any observer it feeds; a discrete module that changes a conserved total declares it in `changes_totals`. Reservoirs, tracers and observers are declared on the property with `reservoir:`, never inferred from a name.
 - Do not duplicate generated structural lists in prose unless the list is small and stable.
 - Prefer explicit empty lists such as `parameters: []` when the schema expects a list.
 - Keep model-local and simulation-local metadata inside their package.

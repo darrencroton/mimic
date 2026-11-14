@@ -3,12 +3,14 @@
 Snapshot Module Schema and Generated-Registration Tests
 
 Validates the metadata and generated-code side of the typed snapshot callback
-contract (process_snapshot / PROCESSING_MODE_SNAPSHOT):
+contract (process_snapshot / PROCESSING_MODE_SNAPSHOT) and the rate callback family
+(rates / PROCESSING_MODE_RATES), which the core dispatches in a rate phase:
 
   - scripts/module_modes.py mirrors the C mode table and enum order
   - the registry generator and the metadata validator accept and reject the same
     supported_processing_modes lists (unknown, duplicate and empty lists fail both)
-  - standalone fallback modules keep exactly the three FoF modes
+  - standalone fallback modules keep exactly the three FoF modes and so never advertise
+    process_snapshot or process_rates
   - generated registration declares and binds only the callbacks a module's modes
     advertise; the generated code is compiled with the project warning set and its
     callbacks are invoked through the registered structs
@@ -127,6 +129,42 @@ def generator_distribution_errors(module):
     return generator.validate_processing_modes([module])
 
 
+def struct_member_names(body):
+    """Return every member name declared in a C struct body, in declaration order.
+
+    Block and line comments are stripped, the body is split on ';' and each declaration on its
+    top-level commas, and each declarator's identifier is taken (pointer stars, array brackets and
+    a function-pointer '(*name)(...)' form handled), so any added member appears in the result
+    whatever its type spelling.
+    """
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", body, flags=re.DOTALL)
+    names = []
+    for declaration in code.split(";"):
+        declaration = " ".join(declaration.split())
+        if not declaration:
+            continue
+        declarators, depth, current = [], 0, ""
+        for char in declaration:
+            if char == "," and depth == 0:
+                declarators.append(current)
+                current = ""
+                continue
+            depth += {"(": 1, ")": -1}.get(char, 0)
+            current += char
+        declarators.append(current)
+        for index, declarator in enumerate(declarators):
+            declarator = re.sub(r"\[[^\]]*\]", "", declarator)
+            function_pointer = re.search(r"\(\s*\*\s*(\w+)\s*\)", declarator)
+            if function_pointer:
+                names.append(function_pointer.group(1))
+                continue
+            identifiers = re.findall(r"[A-Za-z_]\w*", declarator)
+            # The first declarator carries the type; later ones are bare (possibly starred).
+            assert identifiers and (index > 0 or len(identifiers) >= 2), declaration
+            names.append(identifiers[-1])
+    return names
+
+
 def validator_distribution_errors(module):
     """Run the validator's snapshot_distribution validation on one module."""
     results = validator.ValidationResults()
@@ -165,7 +203,46 @@ def test_descriptors_mirror_c_mode_table():
     assert rows == expected, f"C table {rows} != Python descriptors {expected}"
 
     fields = [family.field for family in module_modes.CALLBACK_FAMILIES]
-    assert fields == ["process", "process_snapshot"], fields
+    assert fields == ["process", "process_snapshot", "rates"], fields
+    suffixes = [family.symbol_suffix for family in module_modes.CALLBACK_FAMILIES]
+    assert suffixes == ["_process", "_process_snapshot", "_rates"], suffixes
+    # Each family's C enumerator is MODULE_CALLBACK_FAMILY_<KEY>, and its member is declared in
+    # struct Module in the same order as CALLBACK_FAMILIES.
+    family_body = re.search(r"enum ModuleCallbackFamily \{(.*?)\};", interface, re.DOTALL).group(1)
+    family_enumerators = re.findall(r"^\s*(MODULE_CALLBACK_FAMILY_[A-Z]+)", family_body, re.M)
+    assert family_enumerators == [
+        f"MODULE_CALLBACK_FAMILY_{family.key.upper()}" for family in module_modes.CALLBACK_FAMILIES
+    ], family_enumerators
+    struct_body = interface[interface.index("struct Module {") :]
+    member_positions = [struct_body.index(f"(*{field})(") for field in fields]
+    assert member_positions == sorted(member_positions), "struct Module member order differs"
+    rate_parameters = "const struct RateContext *ctx, const struct Halo *halo, double *coefficients"
+    assert f"int (*rates)({rate_parameters});" in interface
+    assert module_modes.CALLBACK_FAMILIES[-1].parameters == rate_parameters
+    # The rate context carries the evaluation's own state and no solver step or substep.
+    context_body = re.search(r"struct RateContext \{(.*?)\n\};", interface, re.DOTALL).group(1)
+    code = re.sub(r"/\*.*?\*/", "", context_body, flags=re.DOTALL)
+    # The extractor must see declarations a looser pattern would drop silently.
+    doctored = (
+        "int a; unsigned int substep_index; int step, nsteps; double *v[3]; int (*f)(int, int);"
+    )
+    assert struct_member_names(doctored) == [
+        "a",
+        "substep_index",
+        "step",
+        "nsteps",
+        "v",
+        "f",
+    ], struct_member_names(doctored)
+    context_fields = struct_member_names(context_body)
+    assert context_fields == [
+        "snapshot_number",
+        "redshift",
+        "time",
+        "central",
+        "params",
+    ], context_fields
+    assert "const struct Halo *central;" in code
     assert (
         "int (*process_snapshot)(const struct SnapshotContext *ctx, const struct Halo *halos,\n"
         "                          int64_t count);" in interface
@@ -181,6 +258,15 @@ def test_generator_and_validator_agree_on_mode_lists():
         ["process_by_galaxy"],
         ["process_full_halo", "process_snapshot"],
         ["process_by_galaxy", "process_per_event", "process_full_halo", "process_snapshot"],
+        ["process_rates"],
+        ["process_full_halo", "process_rates"],
+        [
+            "process_by_galaxy",
+            "process_per_event",
+            "process_full_halo",
+            "process_snapshot",
+            "process_rates",
+        ],
     ]
     invalid = [
         [],
@@ -190,6 +276,9 @@ def test_generator_and_validator_agree_on_mode_lists():
         ["process_snapshot", "process_snapshot"],
         ["process_full_halo", "process_full_halo", "process_snapshot"],
         ["process_snapshot", 3],
+        ["process_rates", "process_rates"],
+        ["process_rate"],
+        ["Process_Rates"],
     ]
     for modes in valid:
         gen, val = generator_mode_errors(modes), validator_mode_errors(modes)
@@ -221,6 +310,31 @@ def test_standalone_fallback_keeps_three_modes():
     assert found["_pattern"] == "standalone" and found["name"] == "standalone_demo", found
     assert found["supported_processing_modes"] == fof, found
     assert not validator_mode_errors(found["supported_processing_modes"])
+
+    # A standalone module cannot advertise process_rates: its mode list is fixed, so the
+    # rate family is neither declared nor bound in its generated registration.
+    assert "process_rates" not in module_modes.STANDALONE_FALLBACK_MODES
+    assert "process_rates" not in metadata["supported_processing_modes"]
+    assert "process_rates" not in found["supported_processing_modes"]
+    event_info = {"producer_ids": {}, "emits": {}, "consumes": {}}
+    with scratch_dir() as tmp:
+        init_c = tmp / "module_init.c"
+        assert generator.generate_module_init_c([metadata], event_info, "0" * 32, init_c)
+        text = init_c.read_text(encoding="utf-8")
+    # Scoped to this module's own lines, so the file-level legend may change independently.
+    module_lines = [
+        line
+        for line in text.splitlines()
+        if line.startswith(f"const enum ProcessingMode {metadata['name']}_supported_modes")
+        or line.startswith(f"extern int {metadata['name']}_")
+    ]
+    assert any("_supported_modes" in line for line in module_lines), module_lines
+    assert not any("PROCESSING_MODE_RATES" in line for line in module_lines), module_lines
+    assert not any(f"{metadata['name']}_rates(" in line for line in module_lines), module_lines
+    block = re.search(
+        rf"static struct Module {metadata['name']}_module = \{{(.*?)\}};", text, re.DOTALL
+    )
+    assert block and ".rates = NULL," in block.group(1), text
     print("  ✓ standalone modules keep [process_full_halo, process_per_event, process_by_galaxy]")
 
 
@@ -248,6 +362,7 @@ def test_generated_registration_binds_only_advertised_callbacks():
         synthetic_module("demo_snapshot_only", ["process_snapshot"]),
         synthetic_module("demo_fof_only", ["process_by_galaxy", "process_full_halo"]),
         synthetic_module("demo_dual", ["process_full_halo", "process_snapshot"]),
+        synthetic_module("demo_rates_only", ["process_rates"]),
     ]
     event_info = {"producer_ids": {}, "emits": {}, "consumes": {}}
     with scratch_dir() as tmp:
@@ -261,7 +376,14 @@ def test_generated_registration_binds_only_advertised_callbacks():
         assert "extern int demo_fof_only_process_snapshot(" not in text
         assert "extern int demo_dual_process(" in text
         assert "extern int demo_dual_process_snapshot(" in text
-        for name in ("demo_snapshot_only", "demo_fof_only", "demo_dual"):
+        assert "extern int demo_rates_only_rates(" in text
+        assert "extern int demo_rates_only_process(" not in text
+        assert "extern int demo_rates_only_process_snapshot(" not in text
+        assert "extern int demo_fof_only_rates(" not in text
+        assert "extern int demo_dual_rates(" not in text
+        assert ".rates = demo_rates_only_rates," in text
+        assert text.count(".rates = NULL,") == 3, "every other module binds .rates = NULL"
+        for name in ("demo_snapshot_only", "demo_fof_only", "demo_dual", "demo_rates_only"):
             assert f"extern int {name}_init(void);" in text
             assert f"extern int {name}_cleanup(void);" in text
 
@@ -282,6 +404,11 @@ static int calls = 0;
 LIFECYCLE(demo_snapshot_only)
 LIFECYCLE(demo_fof_only)
 LIFECYCLE(demo_dual)
+LIFECYCLE(demo_rates_only)
+int demo_rates_only_rates(const struct RateContext *ctx, const struct Halo *halo,
+                          double *coefficients) {{
+  (void)halo; coefficients[0] = 2.5; calls += 10000; return ctx->snapshot_number == 4 ? 0 : 1;
+}}
 int demo_fof_only_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {{
   (void)ctx; (void)halos; calls += 1; return ngal == 2 ? 0 : 1;
 }}
@@ -310,10 +437,15 @@ int main(void) {{
   const struct Module *snap = find("demo_snapshot_only");
   const struct Module *fof = find("demo_fof_only");
   const struct Module *dual = find("demo_dual");
-  if (num_registered != 3 || !snap || !fof || !dual) return 10;
+  const struct Module *rate = find("demo_rates_only");
+  if (num_registered != 4 || !snap || !fof || !dual || !rate) return 10;
   if (snap->process != NULL || snap->process_snapshot == NULL) return 11;
   if (fof->process == NULL || fof->process_snapshot != NULL) return 12;
   if (dual->process == NULL || dual->process_snapshot == NULL) return 13;
+  if (snap->rates != NULL || fof->rates != NULL || dual->rates != NULL) return 19;
+  if (rate->rates == NULL || rate->process != NULL || rate->process_snapshot != NULL) return 20;
+  if (rate->num_supported_modes != 1 || rate->supported_processing_modes[0] !=
+      PROCESSING_MODE_RATES) return 21;
   if (!snap->init || !snap->cleanup || !fof->init || !fof->cleanup) return 14;
   if (snap->num_supported_modes != 1 || snap->supported_processing_modes[0] !=
       PROCESSING_MODE_SNAPSHOT) return 15;
@@ -327,7 +459,11 @@ int main(void) {{
   if (fof->process(&fctx, halos, 2) || dual->process(&fctx, halos, 2)) return 16;
   if (snap->process_snapshot(&sctx, halos, 2) || dual->process_snapshot(&sctx, halos, 2))
     return 17;
-  if (calls != 1111) return 18;
+  struct RateContext rctx = {{.snapshot_number = 4, .redshift = 0.0, .time = 0.0,
+                              .central = NULL, .params = NULL}};
+  double coefficients[1] = {{0.0}};
+  if (rate->rates(&rctx, &halos[0], coefficients) || coefficients[0] != 2.5) return 22;
+  if (calls != 11111) return 18;
   printf("REGISTRATION_OK\\n");
   return 0;
 }}
@@ -337,7 +473,7 @@ int main(void) {{
         run = subprocess.run([str(exe)], capture_output=True, text=True)
         registered_ok = run.returncode == 0 and "REGISTRATION_OK" in run.stdout
         assert registered_ok, f"harness exit {run.returncode}: {run.stdout}{run.stderr}"
-    print("  ✓ snapshot-only: .process = NULL; FoF-only: .process_snapshot = NULL; dual: both")
+    print("  ✓ each family's callback is bound only for modules advertising it")
 
 
 def test_const_view_compile_contract():
@@ -486,13 +622,17 @@ def test_fixtures_register_only_in_test_builds():
     assert test_build.returncode == 0, test_build.stderr
     out = test_build.stdout
     assert (
-        ".process = NULL,\n    .process_snapshot = test_snapshot_fixture_process_snapshot," in out
+        ".process = NULL,\n    .process_snapshot = test_snapshot_fixture_process_snapshot,\n"
+        "    .rates = NULL," in out
     )
     assert (
         ".process = test_fixture_process,\n    .process_snapshot = test_fixture_process_snapshot,"
         in out
     )
-    assert ".process = test_event_producer_process,\n    .process_snapshot = NULL," in out
+    assert (
+        ".process = test_event_producer_process,\n    .process_snapshot = NULL,\n    .rates = NULL,"
+        in out
+    )
     assert "module_registry_add(&test_snapshot_fixture_module);" in out
 
     makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")

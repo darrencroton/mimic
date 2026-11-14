@@ -35,6 +35,9 @@
  *    - process_snapshot() (snapshot family) once per snapshot from the
  *      post_snapshot phase, with a borrowed view of that snapshot's whole
  *      population; see struct Module.process_snapshot for the contract
+ *    - rates() (rate family) for each active row at every law evaluation of
+ *      the rate phase's segments, at a trial state; see struct Module.rates
+ *      and struct RateContext
  * 4. Core calls cleanup() during program shutdown
  *
  * For a complete, maintained example implementation (including the
@@ -87,6 +90,10 @@
  * Snapshot family (struct Module.process_snapshot):
  * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population at once
  *
+ * Rate family (struct Module.rates):
+ * - PROCESSING_MODE_RATES: Module returns transfer coefficients for one row at a trial state
+ *   (only in the rate phase: a phase under modules.phases whose entries are all process_rates)
+ *
  * When multiple PROCESSING_MODE_BY_GALAXY modules exist in a phase, they execute in
  * galaxy-major order:
  *   for each galaxy g:
@@ -101,6 +108,7 @@ enum ProcessingMode {
   PROCESSING_MODE_PER_EVENT, /**< Module called for each emitted event target */
   PROCESSING_MODE_BY_GALAXY, /**< Module called per-galaxy (galaxy-major loop) */
   PROCESSING_MODE_SNAPSHOT,  /**< Module called once with a whole snapshot population */
+  PROCESSING_MODE_RATES,     /**< Module called per row for transfer coefficients (rate phase) */
   PROCESSING_MODE_COUNT      /**< Number of processing modes */
 };
 
@@ -115,6 +123,7 @@ enum ProcessingMode {
 enum ModuleCallbackFamily {
   MODULE_CALLBACK_FAMILY_FOF,      /**< struct Module.process (per-FoF workspace) */
   MODULE_CALLBACK_FAMILY_SNAPSHOT, /**< struct Module.process_snapshot (whole snapshot) */
+  MODULE_CALLBACK_FAMILY_RATE,     /**< struct Module.rates (coefficients for one row) */
 };
 
 /**
@@ -335,6 +344,125 @@ struct SnapshotContext {
 };
 
 /**
+ * @brief   Context of one rate-law evaluation
+ *
+ * Passed to struct Module.rates for one row at one trial state. It carries
+ * what a law needs to evaluate and nothing about how the core integrates: there
+ * is no solver step, substep index or substep count, so a law cannot depend on
+ * the integration path. The context is owned by the caller and valid only for
+ * the duration of one callback; modules treat every field as read-only.
+ */
+struct RateContext {
+  /** Index of the snapshot being processed (0 = earliest, increasing towards z=0) */
+  int snapshot_number;
+
+  /** Redshift of the snapshot */
+  double redshift;
+
+  /**
+   * Lookback time from z=0, in internal time units (same convention as
+   * ModuleContext.time), at the evaluation point and on the evaluated row's own
+   * clock: rows with different elapsed times see different values.
+   */
+  double time;
+
+  /**
+   * Scratch copy of the FoF central at the trial state, or NULL.
+   *
+   * Non-NULL only for a module that declares `reads_central: true`; for every
+   * other module it is NULL, so a law that did not declare the read cannot
+   * depend on another record. The pointee is core-owned scratch: read it, never
+   * write it, and never retain the pointer past the callback.
+   */
+  const struct Halo *central;
+
+  /** Read-only configuration (cosmology, units, model parameters) */
+  const struct MimicConfig *params;
+};
+
+/** A transfer end that is no record's reservoir: a source's donor or a sink's recipient */
+#define RATE_TRANSFER_EXTERNAL (-1)
+
+/**
+ * @brief   Kind of a declared rate transfer, decided by its two ends
+ *
+ * The kind fixes what the law's coefficient for the transfer means. Generated
+ * from `rates.transfers` in module_info.yaml; scripts/module_modes.py mirrors
+ * the names (TRANSFER_KINDS).
+ */
+enum RateTransferKind {
+  RATE_TRANSFER_INTERNAL,      /**< Reservoir to reservoir of one total; specific rate (1/time) */
+  RATE_TRANSFER_SINK,          /**< Reservoir to external; specific rate (1/time) */
+  RATE_TRANSFER_SOURCE,        /**< External to a reservoir or tracer; absolute rate */
+  RATE_TRANSFER_SLAVED_SOURCE, /**< External, a dimensionless multiple of its master's flux */
+};
+
+/**
+ * @brief   Which record receives a transfer
+ *
+ * Declared as `to_record` (`self`, the default, or `central`); a transfer to
+ * external has no recipient record and is always RATE_TRANSFER_TO_SELF.
+ */
+enum RateTransferRecord {
+  RATE_TRANSFER_TO_SELF,    /**< The evaluated row's own record */
+  RATE_TRANSFER_TO_CENTRAL, /**< The FoF central's record (on the central, its own) */
+};
+
+/**
+ * @brief   One transfer a process_rates module declares (generated, read-only)
+ *
+ * Generated into module_init.c from `rates.transfers`, one descriptor per
+ * transfer in declaration order, so a descriptor's position in its module's
+ * table equals its coefficient_index. Ends hold reservoir table indices
+ * (enum ReservoirIndex in generated/reservoir_table.h) or RATE_TRANSFER_EXTERNAL.
+ */
+struct RateTransfer {
+  /** Transfer name as declared; unique within its module */
+  const char *name;
+
+  /** Slot the module's law writes this transfer's coefficient to */
+  int coefficient_index;
+
+  /**
+   * Position in the global transfer index, which orders every compiled rate
+   * module's transfers by (module name, declaration order)
+   */
+  int global_index;
+
+  /** What the coefficient means (see enum RateTransferKind) */
+  enum RateTransferKind kind;
+
+  /** Donor: a reservoir table index, or RATE_TRANSFER_EXTERNAL for a source */
+  int from;
+
+  /** Recipient: a reservoir table index (a tracer only for a source), or RATE_TRANSFER_EXTERNAL */
+  int to;
+
+  /** Record that receives the transfer */
+  enum RateTransferRecord to_record;
+
+  /** Global index of a slaved source's master transfer, else -1 */
+  int slaved_master;
+
+  /** A slaved source's master as declared, "<module>.<transfer>", else NULL */
+  const char *slaved_to;
+};
+
+/**
+ * @brief   One observer a process_rates module declares (generated, read-only)
+ *
+ * An observer accumulates the committed amount of one of its module's
+ * transfers into a property of reservoir kind `observer`.
+ */
+struct RateObserver {
+  /** Reservoir table index of the observer property */
+  int property;
+
+  /** Coefficient index, in the same module, of the observed transfer */
+  int transfer;
+};
+
+/**
  * @brief Emit a phase-local event for subscribed PROCESSING_MODE_PER_EVENT consumers
  *
  * Intended for producer modules running in PROCESSING_MODE_FULL_HALO.
@@ -358,11 +486,12 @@ struct SnapshotContext {
  * Failure cases: invalid context, invalid halo indices (including a row created
  * by module_create_record() during the running callback, which is not committed
  * until the callback returns), calling outside
- * PROCESSING_MODE_FULL_HALO dispatch, or calling during post_snapshot dispatch
- * (a snapshot callback can neither emit nor consume FoF events). The phase event buffer grows to
- * fit whatever is emitted (module_registry.c); only its structural ceiling (MAX_HALO_ARRAY_SIZE) is
- * unrecoverable, and that aborts via FATAL_ERROR rather than returning non-zero, since it is not
- * something a caller can meaningfully handle.
+ * PROCESSING_MODE_FULL_HALO dispatch, calling during post_snapshot dispatch
+ * (a snapshot callback can neither emit nor consume FoF events), or calling
+ * from a process_rates callback, with any context (refused naming the module). The phase event
+ * buffer grows to fit whatever is emitted (module_registry.c); only its structural ceiling
+ * (MAX_HALO_ARRAY_SIZE) is unrecoverable, and that aborts via FATAL_ERROR rather than returning
+ * non-zero, since it is not something a caller can meaningfully handle.
  *
  * Special case for direct module unit tests: when neither a FoF phase nor
  * post_snapshot dispatch is active, the event is dropped and 0 is returned.
@@ -482,9 +611,9 @@ int module_create_record(struct ModuleContext *ctx, int host_index, struct Halo 
  *
  * KEY DESIGN: Modules are simple - they implement physics through one typed
  * callback per callback family they advertise: process() for the FoF modes,
- * process_snapshot() for the snapshot mode. The module doesn't specify its
- * execution phase or processing mode - those are configuration details
- * specified in the input YAML file. This makes modules maximally reusable.
+ * process_snapshot() for the snapshot mode, rates() for the rate mode. The module doesn't specify
+ * its execution phase or processing mode - those are configuration details specified in the input
+ * YAML file. This makes modules maximally reusable.
  */
 struct Module {
   /**
@@ -582,6 +711,29 @@ struct Module {
                           int64_t count);
 
   /**
+   * @brief Return the transfer coefficients of one row (rate callback family)
+   *
+   * Required when the module advertises PROCESSING_MODE_RATES and NULL
+   * otherwise; registration rejects a missing callback. The rate phase calls it
+   * for each active row (a galaxy, Type != 3) at every law evaluation of a
+   * segment; it may neither emit events nor create records.
+   *
+   * @p halo is a core-owned scratch copy of one row whose galaxy holds the trial
+   * state; read it, never write it. @p coefficients has one zeroed slot per
+   * transfer the module declares, which the callback fills with finite,
+   * non-negative values. @p ctx carries the evaluation's time and the central
+   * (see struct RateContext). The const qualifier is shallow, so it does not by
+   * itself stop a write through halo->galaxy: purity is checked at run time, not
+   * by the signature.
+   *
+   * @param ctx          Rate context (snapshot, redshift, the row's own time, central, params)
+   * @param halo         Scratch copy of the row at the trial state
+   * @param coefficients One slot per declared transfer, zeroed before the call
+   * @return 0 on success, non-zero on failure
+   */
+  int (*rates)(const struct RateContext *ctx, const struct Halo *halo, double *coefficients);
+
+  /**
    * @brief Cleanup module
    *
    * Called once during program shutdown. Use for:
@@ -601,6 +753,7 @@ struct Module {
    * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time
    * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (per-galaxy operations)
    * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population
+   * - PROCESSING_MODE_RATES: Module returns transfer coefficients for one row
    *
    * Set via module_info.yaml (supported_processing_modes field).
    * Runtime directory modules must declare this explicitly. Standalone
@@ -682,6 +835,61 @@ struct Module {
    * @brief Length of emitted_event_ids array (0 if not a producer)
    */
   int num_emitted_events;
+
+  /* ===== Rate Mode (generated from module_info.yaml rates section) ===== */
+
+  /**
+   * @brief Transfers the rates() callback returns coefficients for (NULL if not a rate module)
+   *
+   * Points to a generated table of the module's `rates.transfers`, in
+   * declaration order: entry i describes coefficients[i]. Populated in
+   * module_init.c for a module advertising process_rates.
+   */
+  const struct RateTransfer *rate_transfers;
+
+  /**
+   * @brief Length of rate_transfers (0 if not a rate module), the number of coefficient slots
+   */
+  int num_rate_transfers;
+
+  /**
+   * @brief Observers of the module's transfers (NULL if it declares none)
+   *
+   * Points to a generated table of the module's `rates.observers`.
+   */
+  const struct RateObserver *rate_observers;
+
+  /**
+   * @brief Length of rate_observers (0 if it declares none)
+   */
+  int num_rate_observers;
+
+  /**
+   * @brief Whether the law reads the FoF central through RateContext.central
+   *
+   * Set via `rates.reads_central` (default false). Only a module that declares
+   * it is given a non-NULL central (see struct RateContext).
+   */
+  bool reads_central;
+
+  /* ===== Discrete-phase ledger (generated from module_info.yaml changes_totals) ===== */
+
+  /**
+   * @brief Conserved totals this module's discrete callbacks may change (NULL if none)
+   *
+   * Points to a generated table of the total names the module lists in
+   * `changes_totals`. Read only when a rate phase is configured: the core then
+   * sums each conserved total over the FoF workspace's active rows around every
+   * dispatch unit of a discrete phase, and a change the unit's declarations do
+   * not cover is fatal (module_registry.h, "Discrete-phase ledger"). Each name is
+   * resolved against the generated reservoir table at startup.
+   */
+  const char *const *changes_totals;
+
+  /**
+   * @brief Length of changes_totals (0 if the module declares none)
+   */
+  int num_changes_totals;
 };
 
 #endif // MODULE_INTERFACE_H

@@ -51,6 +51,7 @@
 
 /* Module system (physics-agnostic) */
 #include "module_registry.h"
+#include "rate_assembly.h"
 
 static int exitfail = 1; /* Flag indicating whether program exit was due to failure */
 
@@ -437,6 +438,23 @@ int main(int argc, char **argv) {
      "unable to lock file" (errno 11) on locking filesystems. */
   MPI_Barrier(MPI_COMM_WORLD);
 #endif
+
+  /* The rate phase's step statistics (none without a rate phase): every task's are
+     merged by integer sum and maximum, so the merged values do not depend on the task
+     count, and summarised once. Every task takes part, since every task configures the
+     same phases; rank 0 writes them to the master file below. */
+  struct RateStatistics *rate_statistics = module_rate_statistics();
+  if (rate_statistics != NULL) {
+#ifdef MPI
+    MPI_Allreduce(MPI_IN_PLACE, &rate_statistics->counts, (int)RATE_STATS_COUNT_WORDS, MPI_UINT64_T,
+                  MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &rate_statistics->maxima, (int)RATE_STATS_MAXIMA_WORDS,
+                  MPI_UINT64_T, MPI_MAX, MPI_COMM_WORLD);
+#endif
+    if (ThisTask == 0) {
+      rate_statistics_log_summary(rate_statistics);
+    }
+  }
 
   /* Final output phase banner and any format-specific aggregation */
 #ifdef HDF5

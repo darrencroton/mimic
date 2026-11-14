@@ -29,7 +29,12 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 # Single source of truth for Makefile DEFAULT_* parsing lives with the
 # generator scripts' discovery helpers.
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from discovery import makefile_default, package_is_horizontal, package_test_config
+from discovery import (
+    makefile_default,
+    module_system_dir,
+    package_is_horizontal,
+    package_test_config,
+)
 
 
 def compiled_model():
@@ -89,6 +94,151 @@ def default_simulation():
 def is_default_baseline_combo():
     """Whether the selected build matches the committed baseline package pair."""
     return compiled_model() == default_model() and compiled_simulation() == default_simulation()
+
+
+def fixture_output_field_names():
+    """Return the test fixtures' output field names, in declaration order.
+
+    The framework test fixtures' galaxy properties
+    (``src/module_system/test_fixture/test_properties.yaml``) are appended after
+    every model property in a test build, which is what every test tier runs, so a
+    test build's output schema is the production schema followed by these names in
+    this order. Read from the YAML itself rather than discovery's
+    ``test_property_files()``, which is empty unless ``MIMIC_TEST_BUILD`` is set in
+    the test's own environment.
+
+    Returns:
+        tuple[str, ...]: Names of the fixture properties with a truthy ``output``, the
+        generator's own rule.
+    """
+    path = module_system_dir() / "test_fixture" / "test_properties.yaml"
+    with open(path, encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return tuple(prop["name"] for prop in data.get("galaxy_properties", []) if prop.get("output"))
+
+
+def _name_difference(names_now, expected):
+    """Describe how two name lists differ: the set differences, or the first differing position.
+
+    When both lists hold the same names, the set differences are empty, so the
+    first position where the order differs is named instead.
+    """
+    only_now = sorted(set(names_now) - set(expected))
+    only_expected = sorted(set(expected) - set(names_now))
+    if only_now or only_expected:
+        return f"Only in current: {only_now}\nOnly in expected: {only_expected}"
+    names_now, expected = tuple(names_now), tuple(expected)
+    index = next(
+        (i for i, (now, want) in enumerate(zip(names_now, expected, strict=False)) if now != want),
+        min(len(names_now), len(expected)),
+    )
+    current = names_now[index] if index < len(names_now) else "<end of list>"
+    wanted = expected[index] if index < len(expected) else "<end of list>"
+    return (
+        f"Same names in a different order: first difference at position {index}, "
+        f"current {current!r}, expected {wanted!r}"
+    )
+
+
+def check_output_names(names_now, names_ref, where=""):
+    """Assert a test build's output names are the baseline's followed by the fixture outputs.
+
+    A test build appends the test fixtures' output fields after every production
+    field, so any other difference (a production field added, removed, renamed or
+    moved) is a schema change the baseline does not cover. Output that holds exactly
+    the baseline's names came from a production binary, which these tests do not
+    accept, and the failure says so.
+
+    Args:
+        names_now: The run's output field names, in order.
+        names_ref: The committed baseline's output field names, in order.
+        where: Optional prefix naming what was checked (for example ``"snapshot 16: "``).
+
+    Raises:
+        AssertionError: naming the difference when the names are not the expected ones.
+    """
+    fixture_names = fixture_output_field_names()
+    expected = tuple(names_ref) + fixture_names
+    if tuple(names_now) == expected:
+        return
+    if tuple(names_now) == tuple(names_ref):
+        # The runner reports a failure's first line, so the explanation leads.
+        headline = (
+            f"{where}the output schema holds none of the test fixtures' output fields "
+            f"{list(fixture_names)}: the binary is a production build, and this test expects a "
+            "test build (make TEST_BUILD=yes)."
+        )
+    else:
+        headline = (
+            f"{where}output property names differ from the baseline's followed by the test "
+            f"fixtures' output fields {list(fixture_names)}."
+        )
+    message = f"{headline}\n{_name_difference(names_now, expected)}"
+    raise AssertionError(message)
+
+
+def check_output_names_reject_doctoring(names_ref):
+    """Assert check_output_names fails, naming the difference, on doctored name lists.
+
+    The true list passes; a production field added, removed, renamed or moved, and
+    fixture fields missing (a production binary), are each rejected.
+
+    Args:
+        names_ref: The committed baseline's output field names, in order.
+
+    Returns:
+        int: The number of doctored lists rejected.
+    """
+    names_ref = tuple(names_ref)
+    fixture = fixture_output_field_names()
+    assert len(names_ref) >= 2 and fixture, "need production and fixture names to doctor"
+
+    check_output_names(names_ref + fixture, names_ref)
+
+    middle = len(names_ref) // 2
+    renamed = names_ref[:middle] + (names_ref[middle] + "Renamed",) + names_ref[middle + 1 :]
+    swapped = (
+        names_ref[: middle - 1]
+        + (names_ref[middle], names_ref[middle - 1])
+        + names_ref[middle + 1 :]
+    )
+    position = (
+        f"first difference at position {middle - 1}, current {names_ref[middle]!r}, "
+        f"expected {names_ref[middle - 1]!r}"
+    )
+    # (label, doctored current names, fragments the failure message must hold, fragments its
+    # first line, which is all the test runner reports, must hold)
+    doctored = [
+        ("production field added", names_ref + ("DoctoredField",) + fixture, ["DoctoredField"], []),
+        (
+            "production field removed",
+            names_ref[:middle] + names_ref[middle + 1 :] + fixture,
+            [repr(names_ref[middle])],
+            [],
+        ),
+        ("production field renamed", renamed + fixture, [names_ref[middle] + "Renamed"], []),
+        ("production fields reordered", swapped + fixture, [position], []),
+        # The first line lists the fixture names, so check the difference part, which
+        # lists the missing names sorted, and, in the first line, the explanation.
+        (
+            "fixture fields missing",
+            names_ref,
+            [f"Only in expected: {sorted(fixture)}"],
+            ["production build", "this test expects a test build"],
+        ),
+    ]
+    for label, names_now, fragments, headline in doctored:
+        try:
+            check_output_names(names_now, names_ref)
+        except AssertionError as exc:
+            for fragment in fragments:
+                assert fragment in str(exc), f"{label}: failure does not name {fragment}: {exc}"
+            first_line = str(exc).splitlines()[0]
+            for fragment in headline:
+                assert fragment in first_line, f"{label}: first line lacks {fragment}: {exc}"
+            continue
+        raise AssertionError(f"{label}: the name check accepted a doctored name list")
+    return len(doctored)
 
 
 def not_applicable_to_non_default_baseline():
@@ -565,6 +715,7 @@ def create_test_param_file(
     min_dynamic_substeps=None,
     max_dynamic_substeps=None,
     snapshot_list=None,
+    rate_integration=None,
 ):
     """
     Create a test YAML parameter file with multi-phase module configuration
@@ -589,7 +740,9 @@ def create_test_param_file(
                             }
                             Each tuple is (module_name, processing_mode) where processing_mode is
                             'process_full_halo', 'process_per_event', or 'process_by_galaxy'
-                            ('process_snapshot' is used only under 'post_snapshot')
+                            ('process_snapshot' is used only under 'post_snapshot'; a
+                            user-named phase whose entries are all 'process_rates' is the
+                            run's one rate phase)
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: keep reference simulation config)
         last_file (int): Last file to process (default: keep reference simulation config)
@@ -606,6 +759,12 @@ def create_test_param_file(
         min_dynamic_substeps (int, optional): MinDynamicSubsteps override (emitted only when given)
         max_dynamic_substeps (int, optional): MaxDynamicSubsteps override (default: from ref file)
         snapshot_list (list[int], optional): Output snapshots (default: the ref file's list)
+        rate_integration (dict, optional): The modules.rate_integration section, emitted
+                                           verbatim when given (keys scheme,
+                                           relative_tolerance, absolute_tolerance,
+                                           max_steps_per_segment, max_rejections_per_step,
+                                           check_purity); omitted otherwise, so the defaults
+                                           apply
 
     Returns:
         tuple: (param_file_path, output_dir_path, temp_dir_path)
@@ -722,6 +881,9 @@ def create_test_param_file(
         if post_snapshot:
             modules_section["post_snapshot"] = _entries(post_snapshot)
     # else: physics-free mode — leave modules with no phases
+
+    if rate_integration is not None:
+        modules_section["rate_integration"] = rate_integration
 
     config["modules"] = modules_section
 

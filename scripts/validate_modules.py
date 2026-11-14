@@ -15,6 +15,14 @@ src/module_system/test_* are validated too, and the test-only galaxy properties 
 (``test_property_files()``, e.g. TestDummyProperty) are loaded into the property metadata so
 the fixtures' declared dependencies resolve. Production runs load none of them.
 
+The ``rates:`` declaration of a ``process_rates`` module is checked by the rules in
+scripts/module_modes.py (rate_metadata_errors()), which the registry generator shares.
+Its cross-module rules (a slaved source's master and the order of the conserved
+totals) always run over every discovered module, so validating one module path still
+resolves a master declared by another module. The same rules check
+``changes_totals``, the conserved totals a discrete module declares it may change,
+against the totals the galaxy properties declare.
+
 Exit codes:
     0 - All validations passed
     1 - Schema error (missing fields, wrong types)
@@ -45,10 +53,12 @@ from discovery import (
     standalone_module_files,
     test_property_files,
 )
-from generate_properties import load_parameter_units
+from generate_properties import load_galaxy_property_metadata, load_parameter_units
 from module_modes import (
     STANDALONE_FALLBACK_MODES,
     mode_list_errors,
+    rate_error_module,
+    rate_metadata_errors,
     snapshot_distribution_errors,
 )
 
@@ -719,6 +729,41 @@ def validate_parameter_units(valid_modules, results: ValidationResults) -> None:
             )
 
 
+def validate_rate_declarations(
+    modules: List[Tuple[Path, Dict[str, Any]]],
+    property_metadata: Dict[str, Dict[str, Any]],
+    results: ValidationResults,
+    report_only: Optional[set] = None,
+) -> bool:
+    """Validate every module's rates: and changes_totals declarations against the properties.
+
+    The rules live in rate_metadata_errors() in scripts/module_modes.py, which the
+    registry generator also uses, so the two tools refuse the same metadata. They
+    run over every module passed, because a slaved source's master and the order
+    of the conserved totals span modules. A malformed declaration is a schema
+    error (exit code 1); a reference to an unknown property, an undeclared
+    transfer or an undeclared total is a dependency error (exit code 3).
+
+    Args:
+        modules: (module directory, metadata) pairs, every discovered module.
+        property_metadata: Galaxy property metadata by name (load_galaxy_property_metadata()).
+        results: Collector the refusals are added to.
+        report_only: When given, only refusals against these module names are
+            reported (validating one module path with every module as context).
+
+    Returns:
+        True when no refusal was reported.
+    """
+    metadata = [module for _, module in modules if module is not None]
+    valid = True
+    for error in rate_metadata_errors(metadata, property_metadata):
+        if report_only is not None and error.module not in report_only:
+            continue
+        results.add_error(error.module, 3 if error.dependency else 1, error.message)
+        valid = False
+    return valid
+
+
 # ==============================================================================
 # MAIN VALIDATION FUNCTION
 # ==============================================================================
@@ -856,9 +901,27 @@ def main():
             return 1
 
         modules = [(module_dir, metadata)]
+        # Every discovered module, with this one in place of its namesake (by name or
+        # directory), is the context for the cross-module rate rules. Rate refusals are
+        # reported only against this module, under the name the rules attribute them to
+        # (rate_error_module(), UNNAMED_MODULE when its metadata has no string name).
+        selected_name = metadata.get("name")
+        rate_context = [
+            (path, other)
+            for path, other in discover_modules()
+            if path.resolve() != module_dir.resolve()
+            and (
+                other is None
+                or not isinstance(selected_name, str)
+                or other.get("name") != selected_name
+            )
+        ] + modules
+        rate_report_only = {rate_error_module(metadata)}
     else:
         # Validate all modules
         modules = discover_modules()
+        rate_context = modules
+        rate_report_only = None
 
     if not modules:
         print("No modules found to validate.")
@@ -897,6 +960,10 @@ def main():
         validate_dependencies(valid_modules, property_metadata, results, args.verbose)
         print("Validating parameter unit metadata...")
         validate_parameter_units(valid_modules, results)
+        print("Validating rate declarations...")
+        validate_rate_declarations(
+            rate_context, load_galaxy_property_metadata(), results, rate_report_only
+        )
 
     # Print summary
     results.print_summary()

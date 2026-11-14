@@ -39,6 +39,7 @@ static const struct ProcessingModeDescriptor processing_mode_descriptors[] = {
     {PROCESSING_MODE_PER_EVENT, "process_per_event", MODULE_CALLBACK_FAMILY_FOF},
     {PROCESSING_MODE_BY_GALAXY, "process_by_galaxy", MODULE_CALLBACK_FAMILY_FOF},
     {PROCESSING_MODE_SNAPSHOT, "process_snapshot", MODULE_CALLBACK_FAMILY_SNAPSHOT},
+    {PROCESSING_MODE_RATES, "process_rates", MODULE_CALLBACK_FAMILY_RATE},
 };
 
 #define NUM_PROCESSING_MODE_DESCRIPTORS                                                            \

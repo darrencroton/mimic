@@ -7,7 +7,7 @@ source metadata. Generated files are build artifacts and are not committed.
 
 Current scope:
 - Property metadata outputs generated from halo/model property YAML
-- Module-generated event contract header
+- Module-generated event and rate contract headers
 
 Usage:
     MODEL=sage16 python3 scripts/check_generated.py
@@ -45,6 +45,7 @@ PROPERTY_YAML_FILES = halo_property_files() + model_property_files() + parameter
 # Property-generated files to check
 PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "property_defs.h",
+    REPO_ROOT / "src" / "include" / "generated" / "reservoir_table.h",
     REPO_ROOT / "src" / "include" / "generated" / "raw_halo_defs.h",
     REPO_ROOT / "src" / "include" / "generated" / "reference_units.h",
     REPO_ROOT / "src" / "include" / "generated" / "unit_registry.h",
@@ -66,7 +67,8 @@ PROPERTY_GENERATED_FILES = [
 # descriptors are a module-generation input alongside the generator itself.
 MODULE_MODES_PY = REPO_ROOT / "scripts" / "module_modes.py"
 MODULE_EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
-MODULE_GENERATED_FILES = [MODULE_EVENT_CONTRACTS_H]
+MODULE_RATE_CONTRACTS_H = generated_module_dir() / "rate_contracts.h"
+MODULE_GENERATED_FILES = [MODULE_EVENT_CONTRACTS_H, MODULE_RATE_CONTRACTS_H]
 
 # ==============================================================================
 # UTILITIES

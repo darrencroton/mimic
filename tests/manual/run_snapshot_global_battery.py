@@ -43,18 +43,20 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import signal
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+from framework.battery import Battery as BaseBattery  # noqa: E402
+
 UNIT_DIR = REPO_ROOT / "tests" / "unit"
 SHAM_TESTS = Path("models/sham/modules/sham_rank_match/_tests")
 HOD_TESTS = Path("models/hod/modules/hod_populate/_tests")
 MARKER_RE = re.compile(r"^MIMIC_RESULT: (PASS|WARN|FAIL|ERROR|SKIP|NA)\b.*$", re.MULTILINE)
-MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")
+MAKE_STATE = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")  # what a group's builds must not inherit
 
 
 @dataclass(frozen=True)
@@ -144,27 +146,13 @@ GROUPS = (
 )
 
 
-class Battery:
+class Battery(BaseBattery):
     """Runs groups in sequence, appending every command's output to one log."""
 
     def __init__(self, log_path: Path):
-        self.log_path = log_path
-        self.failures: list[str] = []
+        super().__init__(log_path)
         self.warnings: list[str] = []
         self.cases = 0
-
-    def run(self, cmd: list[str], cwd: Path, env: dict, title: str) -> tuple[int, str]:
-        """Run one command; its output goes to the log and is returned with the exit status."""
-        completed = subprocess.run(
-            cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-        )
-        with self.log_path.open("a") as handle:
-            handle.write(f"=== {title} (exit {completed.returncode})\n{completed.stdout}\n")
-        return completed.returncode, completed.stdout
-
-    def fail(self, message: str) -> None:
-        print(f"FAIL: {message}", flush=True)
-        self.failures.append(message)
 
     def check(self, label: str, status: int, output: str, declared: int) -> None:
         """Apply the marker policy to one step's output."""
@@ -179,47 +167,29 @@ class Battery:
         if passed != declared:
             self.fail(f"{label} ran {passed} passing cases, expected {declared}")
         for line in warned:
-            print(f"WARN: {label}: {line}", flush=True)
+            self.say(f"WARN: {label}: {line}")
         self.warnings += warned
         self.cases += passed
-        print(f"  {label}: {passed}/{declared} cases", flush=True)
+        self.say(f"  {label}: {passed}/{declared} cases")
 
     def group(self, group: Group) -> None:
-        print(f"--- {group.model} x {group.simulation}", flush=True)
+        self.say(f"--- {group.model} x {group.simulation}")
         env = {key: value for key, value in os.environ.items() if key not in MAKE_STATE}
         env.update(MODEL=group.model, SIMULATION=group.simulation)
         env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env.get('PATH', '')}"
         selectors = [f"MODEL={group.model}", f"SIMULATION={group.simulation}", "TEST_BUILD=yes"]
         make = ["make", "--no-print-directory", *selectors]
-        status, _ = self.run([*make, "generate", "validate-build"], REPO_ROOT, env, "generate")
+        status, _ = self.run([*make, "generate", "validate-build"], "generate", env=env)
         if status == 0:
             jobs = f"-j{os.cpu_count() or 4}"
-            status, _ = self.run([*make, jobs, "mimic"], REPO_ROOT, env, "build")
+            status, _ = self.run([*make, jobs, "mimic"], "build", env=env)
         if status != 0:
             self.fail(f"build {group.model} x {group.simulation} exited {status}; tests not run")
             return
         for test in group.tests:
             cmd, cwd = test.command()
-            status, output = self.run(cmd, cwd, env, test.label)
+            status, output = self.run(cmd, test.label, cwd=cwd, env=env)
             self.check(test.label, status, output, test.declared())
-
-    def restore(self) -> None:
-        """Regenerate the caller's generated code; a failure fails the run."""
-        selectors = [
-            f"{key}={os.environ[key]}" for key in ("MODEL", "SIMULATION") if key in os.environ
-        ]
-        env = {key: value for key, value in os.environ.items() if key not in MAKE_STATE}
-        cmd = ["make", "--no-print-directory", *selectors, "generate"]
-        status, _ = self.run(cmd, REPO_ROOT, env, "restore generated code")
-        caller = " ".join(selectors) or "the Makefile defaults"
-        if status != 0:
-            self.fail(f"could not restore generated code for {caller} (see {self.log_path})")
-        else:
-            print(f"Generated code restored for {caller}; rebuild the executable with 'make'.")
-
-
-def raise_on_signal(signum, _frame):
-    raise SystemExit(128 + signum)
 
 
 def main(argv=None, groups=GROUPS) -> int:
@@ -230,21 +200,17 @@ def main(argv=None, groups=GROUPS) -> int:
     only = args.only[0] if args.only and len(args.only) == 1 else None
     target = "tests-snapshot-global" + (f"-{only}" if only in ("sham", "hod") else "")
     log_path = REPO_ROOT / "build" / f"{target.replace('tests-', '').replace('-', '_')}_tests.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text("")
     battery = Battery(log_path)
-    for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM):
-        signal.signal(signum, raise_on_signal)
-    try:
+
+    def steps():
         for group in selected:
             battery.group(group)
-    finally:
-        battery.restore()
-    if battery.failures:
-        print(f"FAIL: {target} ({len(battery.failures)} failure(s); see {log_path})")
+
+    battery.execute(steps)
+    if battery.failed(target):
         return 1
     note = f", {len(battery.warnings)} warning(s) surfaced" if battery.warnings else ""
-    print(
+    battery.say(
         f"PASS: {target} ({battery.cases} cases, every step gated on its declared count, "
         f"no skips{note}; log: {log_path})"
     )

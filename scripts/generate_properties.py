@@ -16,6 +16,7 @@ Reads:
 
 Generates:
     src/include/generated/property_defs.h
+    src/include/generated/reservoir_table.h
     src/include/generated/catalog_field_metadata.inc
     src/include/generated/populate_halo_payload.inc
     src/include/generated/property_test_helpers.h
@@ -30,9 +31,10 @@ Generates:
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 try:
     import yaml
@@ -40,6 +42,7 @@ except ImportError:
     print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
     sys.exit(1)
 
+from console import print_warning
 from discovery import (
     REPO_ROOT,
     core_property_files,
@@ -302,6 +305,172 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
                 "init_repeat only applies to properties with init_source: default."
             )
 
+    if "reservoir" in prop:
+        if category != "galaxy":
+            raise ValueError(
+                f"Property '{name}' declares reservoir: but is a halo (core or simulation) "
+                "property; reservoir: applies to galaxy properties only"
+            )
+        validate_reservoir_mapping(prop)
+
+
+# The `reservoir:` mapping of a galaxy property: its kind, the conserved total a
+# reservoir or tracer belongs to, and the reservoir a tracer is carried by.
+RESERVOIR_KINDS = ("reservoir", "tracer", "observer")
+RESERVOIR_KEYS = ("kind", "total", "parent")
+# A total is named like an identifier: later metadata and messages refer to it by
+# name, and the generated header writes it as a C string literal.
+RESERVOIR_TOTAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _kind_phrase(kind: str) -> str:
+    """Return a reservoir kind with its article: "a reservoir", "a tracer", "an observer"."""
+    return f"an {kind}" if kind[:1] in "aeiou" else f"a {kind}"
+
+
+def validate_reservoir_mapping(prop: Dict[str, Any]) -> None:
+    """Validate one galaxy property's `reservoir:` mapping on its own.
+
+    A reservoir or tracer is a conserved quantity the core integrates, so it must
+    be a scalar double that no per-snapshot reset can change behind the ledger's
+    back. Checks that need the other properties live in validate_reservoirs().
+    """
+    name = prop["name"]
+    mapping = prop["reservoir"]
+    if not isinstance(mapping, dict):
+        raise ValueError(
+            f"Property '{name}' has a reservoir: value that is not a mapping; "
+            f"expected keys {list(RESERVOIR_KEYS)}"
+        )
+    unknown = [key for key in mapping if key not in RESERVOIR_KEYS]
+    if unknown:
+        raise ValueError(
+            f"Property '{name}' has unknown reservoir: key(s) {unknown}; "
+            f"allowed keys are {list(RESERVOIR_KEYS)}"
+        )
+
+    kind = mapping.get("kind")
+    if kind not in RESERVOIR_KINDS:
+        raise ValueError(
+            f"Property '{name}' has reservoir kind '{kind}'; "
+            f"it must be one of {list(RESERVOIR_KINDS)}"
+        )
+    if prop["type"] != "double":
+        raise ValueError(
+            f"Property '{name}' declares reservoir kind '{kind}' with type '{prop['type']}'; "
+            "a reservoir, tracer or observer must be a scalar double"
+        )
+
+    if kind == "observer":
+        if "total" in mapping:
+            raise ValueError(
+                f"Property '{name}' is an observer and declares a total; "
+                "an observer belongs to no conserved total"
+            )
+    else:
+        total = mapping.get("total")
+        if not isinstance(total, str) or not total:
+            raise ValueError(
+                f"Property '{name}' is {_kind_phrase(kind)} and needs a non-empty string total: "
+                "naming its conserved total"
+            )
+        if not RESERVOIR_TOTAL_NAME.fullmatch(total):
+            raise ValueError(
+                f"Property '{name}' names total {total!r}; a total name must match "
+                "[A-Za-z_][A-Za-z0-9_]* (letters, digits and underscores, not starting "
+                "with a digit)"
+            )
+        if prop.get("init_repeat") is True:
+            raise ValueError(
+                f"Property '{name}' is {_kind_phrase(kind)} with init_repeat: true; a conserved "
+                "quantity must not be reset each snapshot"
+            )
+
+    if kind == "tracer":
+        parent = mapping.get("parent")
+        if not isinstance(parent, str) or not parent:
+            raise ValueError(
+                f"Property '{name}' is a tracer and needs a non-empty string parent: "
+                "naming the reservoir that carries it"
+            )
+    elif "parent" in mapping:
+        raise ValueError(
+            f"Property '{name}' is {_kind_phrase(kind)} and declares a parent; "
+            "only a tracer has one"
+        )
+
+
+def validate_reservoirs(galaxy_props: List[Dict[str, Any]]) -> None:
+    """Check the `reservoir:` declarations against each other.
+
+    Every mapping must already have passed validate_reservoir_mapping(). A total
+    exists when at least one reservoir or tracer names it; it holds reservoirs or
+    tracers, never both, and its members share one `units` string so that summing
+    them is meaningful. A tracer's total differs from its parent's (metal mass is
+    part of gas mass, so it does not add to the gas total), and no reservoir
+    carries two tracers of one total.
+    """
+    by_name = {prop["name"]: prop for prop in galaxy_props}
+    total_kind: Dict[str, Any] = {}
+    total_units: Dict[str, Any] = {}
+    tracer_by_parent_total: Dict[Any, str] = {}
+
+    for prop in galaxy_props:
+        mapping = prop.get("reservoir")
+        if mapping is None:
+            continue
+        name = prop["name"]
+        kind = mapping["kind"]
+        if kind == "observer":
+            continue
+        total = mapping["total"]
+
+        if kind == "tracer":
+            parent_name = mapping["parent"]
+            parent = by_name.get(parent_name)
+            if parent is None:
+                raise ValueError(
+                    f"Property '{name}' is a tracer of '{parent_name}', "
+                    "which is not a galaxy property"
+                )
+            parent_mapping = parent.get("reservoir") or {}
+            if parent_mapping.get("kind") != "reservoir":
+                raise ValueError(
+                    f"Property '{name}' is a tracer of '{parent_name}', which is not a "
+                    "reservoir (a tracer's parent must declare reservoir kind 'reservoir')"
+                )
+            if parent_mapping.get("total") == total:
+                raise ValueError(
+                    f"Property '{name}' is a tracer in total '{total}', the total of its "
+                    f"parent '{parent_name}'; a tracer belongs to a total of its own"
+                )
+            sibling = tracer_by_parent_total.get((parent_name, total))
+            if sibling is not None:
+                raise ValueError(
+                    f"Property '{name}' is a second tracer of '{parent_name}' in total "
+                    f"'{total}' (the first is '{sibling}')"
+                )
+            tracer_by_parent_total[(parent_name, total)] = name
+
+        if total not in total_kind:
+            total_kind[total] = (kind, name)
+            total_units[total] = (prop["units"], name)
+            continue
+        first_kind, first_name = total_kind[total]
+        if first_kind != kind:
+            raise ValueError(
+                f"Property '{name}' is {_kind_phrase(kind)} in total '{total}', which already "
+                f"holds the {first_kind} '{first_name}'; a total holds reservoirs or tracers, "
+                "not both"
+            )
+        first_units, first_units_name = total_units[total]
+        if prop["units"] != first_units:
+            raise ValueError(
+                f"Property '{name}' has units '{prop['units']}' but total '{total}' "
+                f"already holds '{first_units_name}' in '{first_units}'; every member "
+                "of a total has the same units"
+            )
+
 
 def validate_properties(halo_props: List[Dict], galaxy_props: List[Dict]) -> None:
     """Validate all properties and check for duplicates."""
@@ -319,6 +488,8 @@ def validate_properties(halo_props: List[Dict], galaxy_props: List[Dict]) -> Non
     if duplicates:
         raise ValueError(f"Duplicate property names found: {duplicates}")
 
+    validate_reservoirs(galaxy_props)
+
     print(f"✓ Validated {len(halo_props)} halo properties")
     print(f"✓ Validated {len(galaxy_props)} galaxy properties")
 
@@ -330,6 +501,27 @@ def load_yaml_mapping(path: Path) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"{rel(path)}: expected a YAML mapping")
     return data
+
+
+def load_galaxy_property_metadata() -> Dict[str, Dict[str, Any]]:
+    """Load every galaxy property's metadata by name.
+
+    Reads the model's galaxy property files and, in test builds, the fixture-owned
+    test properties (test_property_files() is empty for production builds). The
+    rates: rules read each property's ``reservoir:`` mapping from this view, which the
+    registry generator and the metadata validator both pass them, so a transfer end
+    naming a halo or core property gets the same refusal from both tools.
+    """
+    properties: Dict[str, Dict[str, Any]] = {}
+    for galaxy_props_path in model_property_files() + test_property_files():
+        try:
+            with open(galaxy_props_path, "r", encoding="utf-8") as f:
+                props_yaml = yaml.safe_load(f) or {}
+            for prop in props_yaml.get("galaxy_properties", []) or []:
+                properties[prop["name"]] = prop
+        except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
+            print_warning(f"Failed to load galaxy properties from {rel(galaxy_props_path)}: {e}")
+    return properties
 
 
 def load_core_metadata() -> Dict[str, Any]:
@@ -514,6 +706,12 @@ def normalize_catalog_contract(
             raise ValueError(f"Duplicate catalog property '{name}'")
         if prop.get("type") not in TYPE_MAP:
             raise ValueError(f"Catalog property '{name}' has unknown type '{prop.get('type')}'")
+        # Catalog-only entries never reach validate_property(), so refuse here too.
+        if "reservoir" in prop:
+            raise ValueError(
+                f"Catalog property '{name}' declares reservoir: but is a halo property; "
+                "reservoir: applies to galaxy properties only"
+            )
         # Default units once, here: every reader of catalog_by_name sees a normalised entry.
         units = prop.get("units", "dimensionless")
         _unit_info(units)
@@ -858,6 +1056,127 @@ def generate_property_defs_h(
     code += "};\n\n"
 
     code += "#endif /* GENERATED_PROPERTY_DEFS_H */\n"
+    return code
+
+
+def reservoir_index_symbol(name: str) -> str:
+    """Return the enumerator naming a property's row in the reservoir table.
+
+    The table emitter, the rate-table generator and the generated-name collision
+    rules all spell the symbol through this function.
+    """
+    return f"RESERVOIR_INDEX_{name}"
+
+
+def build_reservoir_table(
+    galaxy_props: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Return the reservoir table's entries and total names, both in property YAML order.
+
+    Each entry is a dict with `name`, `kind`, `parent` (the table index of a
+    tracer's parent, else -1) and `total` (the index of its total in the returned
+    total names, else -1). A total's index is the order in which a reservoir or
+    tracer first names it. The declarations must already have passed
+    validate_reservoirs().
+    """
+    declared = [prop for prop in galaxy_props if "reservoir" in prop]
+    index_of = {prop["name"]: index for index, prop in enumerate(declared)}
+    totals: List[str] = []
+    entries: List[Dict[str, Any]] = []
+    for prop in declared:
+        mapping = prop["reservoir"]
+        total = mapping.get("total")
+        if total is not None and total not in totals:
+            totals.append(total)
+        entries.append(
+            {
+                "name": prop["name"],
+                "kind": mapping["kind"],
+                "parent": index_of[mapping["parent"]] if "parent" in mapping else -1,
+                "total": totals.index(total) if total is not None else -1,
+            }
+        )
+    return entries, totals
+
+
+def generate_reservoir_table_h(galaxy_props: List[Dict[str, Any]], yaml_hash: str) -> str:
+    """Generate reservoir_table.h: the galaxy properties that declare `reservoir:`.
+
+    The header holds an index enumeration with one symbol per entry, the table of
+    {name, offset in struct GalaxyData, kind, parent index, total index} in
+    property YAML order, the total names and the two counts. A build with no
+    declaration (every production build today) gets counts of zero, no index
+    enumeration and accessors that return NULL, so it compiles clean without a
+    zero-length array.
+    """
+    entries, totals = build_reservoir_table(galaxy_props)
+    kind_symbol = {
+        "reservoir": "RESERVOIR_KIND_RESERVOIR",
+        "tracer": "RESERVOIR_KIND_TRACER",
+        "observer": "RESERVOIR_KIND_OBSERVER",
+    }
+
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_RESERVOIR_TABLE_H\n"
+    code += "#define GENERATED_RESERVOIR_TABLE_H\n\n"
+    code += "#include <stddef.h>\n\n"
+    code += '#include "property_defs.h"\n\n'
+    code += (
+        "/* The galaxy properties that declare `reservoir:` in their property metadata,\n"
+        " * in property YAML order. A reservoir and a tracer belong to a conserved total;\n"
+        " * a tracer is carried by its parent reservoir; an observer belongs to no total.\n"
+        " * Every entry is a double member of struct GalaxyData. */\n\n"
+    )
+    code += "enum ReservoirKind {\n"
+    code += "  RESERVOIR_KIND_RESERVOIR = 0,\n"
+    code += "  RESERVOIR_KIND_TRACER = 1,\n"
+    code += "  RESERVOIR_KIND_OBSERVER = 2\n"
+    code += "};\n\n"
+    code += "struct ReservoirEntry {\n"
+    code += "  const char *name;        /* Property name and struct GalaxyData member */\n"
+    code += "  size_t offset;           /* offsetof(struct GalaxyData, <member>) */\n"
+    code += "  enum ReservoirKind kind; /* Declared reservoir kind */\n"
+    code += "  int parent;              /* Table index of a tracer's parent, else -1 */\n"
+    code += "  int total;               /* Index into the total names, else -1 */\n"
+    code += "};\n\n"
+    code += f"#define MIMIC_RESERVOIR_COUNT {len(entries)}\n"
+    code += f"#define MIMIC_RESERVOIR_TOTAL_COUNT {len(totals)}\n\n"
+
+    if entries:
+        code += "enum ReservoirIndex {\n"
+        code += ",\n".join(
+            f"  {reservoir_index_symbol(entry['name'])} = {index}"
+            for index, entry in enumerate(entries)
+        )
+        code += "\n};\n\n"
+        code += "static inline const struct ReservoirEntry *mimic_reservoir_table(void) {\n"
+        code += "  static const struct ReservoirEntry table[MIMIC_RESERVOIR_COUNT] = {\n"
+        for entry in entries:
+            code += (
+                f"      {{{json.dumps(entry['name'])}, "
+                f"offsetof(struct GalaxyData, {entry['name']}), "
+                f"{kind_symbol[entry['kind']]}, {entry['parent']}, {entry['total']}}},\n"
+            )
+        code += "  };\n"
+        code += "  return table;\n"
+        code += "}\n\n"
+    else:
+        code += "/* No galaxy property declares reservoir:, so there is no index enumeration. */\n"
+        code += "static inline const struct ReservoirEntry *mimic_reservoir_table(void) {\n"
+        code += "  return NULL;\n"
+        code += "}\n\n"
+
+    code += "static inline const char *const *mimic_reservoir_total_names(void) {\n"
+    if totals:
+        code += "  static const char *const names[MIMIC_RESERVOIR_TOTAL_COUNT] = {\n"
+        for total in totals:
+            code += f"      {json.dumps(total)},\n"
+        code += "  };\n"
+        code += "  return names;\n"
+    else:
+        code += "  return NULL;\n"
+    code += "}\n\n"
+    code += "#endif /* GENERATED_RESERVOIR_TABLE_H */\n"
     return code
 
 
@@ -2033,6 +2352,10 @@ def main():
     write_file(
         GENERATED_DIR / "property_defs.h",
         generate_property_defs_h(halo_props, galaxy_props, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "reservoir_table.h",
+        generate_reservoir_table_h(galaxy_props, yaml_hash),
     )
     write_file(
         GENERATED_DIR / "reference_units.h",

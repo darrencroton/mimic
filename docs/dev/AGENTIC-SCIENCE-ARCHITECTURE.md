@@ -325,7 +325,7 @@ Notes on the order:
 - **Its package name is settled in pattern.** The fork is `sage16rate`, and `sage26` follows the same pattern. The earlier brief planned a rename once the package was recalibrated, because it would then be a distinct model. That concern falls away: the fork's target is the published model's own results, and it is not published as a model in its own right.
 - **Its contracts are now precise enough to plan from:** what a rate law may be, how phases, substeps and jumps fit together, which kinds of state exist, what the ledger checks, and the fixture problems the mode is proven on.
 
-The two decisions that brief left to the owner, whether the implicit scheme ships in stage 1 and the user-facing names, were taken on 2026-11-12, and the plan is written: [`MIMIC-COUPLED-RATE-IMPLEMENTATION-PLAN.md`](MIMIC-COUPLED-RATE-IMPLEMENTATION-PLAN.md).
+The two decisions that brief left to the owner, whether the implicit scheme ships in stage 1 and the user-facing names, were taken on 2026-11-12, and the plan was written as `MIMIC-COUPLED-RATE-IMPLEMENTATION-PLAN.md`. It ran as an ordinary Mode B plan; it, its acceptance record and its post-implementation review are in `archive/dev-plans/` since 2026-11-14.
 
 ### Campaigns as shakedowns
 

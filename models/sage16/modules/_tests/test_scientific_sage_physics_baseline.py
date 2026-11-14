@@ -25,7 +25,13 @@ Test cases:
     package's vertical run file's, value for value and in order, so the baseline
     pins the pipeline the package ships and a run-file change fails here until the
     input and the baseline are refreshed with it
-  - test_sage_physics_baseline: the fresh run matches the committed baseline
+  - test_sage_physics_baseline: the fresh run matches the committed baseline; its
+    output field names are the baseline's followed by the test fixtures' output
+    fields (the tier runs a test build, which appends them; see
+    check_output_names in tests/framework/harness.py)
+  - test_output_names_reject_doctored_production_fields: that name check fails when
+    a production field is added, removed, renamed or moved, or the fixture fields are
+    missing (a production binary), shown on doctored name lists
   - test_physics_output_finite_and_in_range: the same fresh run (it is not repeated)
     holds no NaN or Inf and no value outside its declared range, sentinels
     excluded exactly as the core scientific tier does; properties with no declared
@@ -47,7 +53,9 @@ rounding of this kind and nothing a module could form: 1e-15 is 1e-5 Msun/h.
 
 If the baseline case fails after a DELIBERATE, validated science change, refresh
 the reference. If the run file changed, first copy its SubSteps and modules block
-into the input (models/sage16/modules/_tests/input/test_physics_binary.yaml). Then:
+into the input (models/sage16/modules/_tests/input/test_physics_binary.yaml).
+Capture it with an ordinary build (make), not a test build, which appends the test
+fixtures' output fields. Then:
     ./mimic models/sage16/modules/_tests/input/test_physics_binary.yaml
     cp tests/data/output/physics-binary/model_z0.000_0 \\
        models/sage16/modules/_tests/baseline/physics-binary/
@@ -85,6 +93,10 @@ from framework import (  # noqa: E402  (path set up above)
     not_applicable_to_non_default_baseline,
     run_mimic_fresh,
     run_test_suite,
+)
+from framework.harness import (  # noqa: E402
+    check_output_names,
+    check_output_names_reject_doctoring,
 )
 
 INPUT = (
@@ -186,11 +198,7 @@ def test_sage_physics_baseline():
         f"baseline={meta_ref['TotHalos']}{NC}"
     )
 
-    assert halos_now.dtype.names == halos_ref.dtype.names, (
-        f"{RED}Output property schema mismatch.\n"
-        f"Only in current: {sorted(set(halos_now.dtype.names) - set(halos_ref.dtype.names))}\n"
-        f"Only in baseline: {sorted(set(halos_ref.dtype.names) - set(halos_now.dtype.names))}{NC}"
-    )
+    check_output_names(halos_now.dtype.names, halos_ref.dtype.names)
 
     # Compare every property (core + baryonic) for every halo.
     passed, report = compare_halos_comprehensive(
@@ -211,6 +219,14 @@ def test_sage_physics_baseline():
         f"(see this file's docstring).{NC}"
     )
     print(f"{GREEN}  ✓ SAGE galaxy-physics output matches committed baseline{NC}")
+
+
+def test_output_names_reject_doctored_production_fields():
+    """The name check fails when a production field is added, removed, renamed or moved."""
+    assert BASELINE.exists(), f"Committed baseline not found: {BASELINE}"
+    names_ref = tuple(load_binary_halos(BASELINE)[0].dtype.names)
+    count = check_output_names_reject_doctoring(names_ref)
+    print(f"  {count} doctored name lists rejected; the true list accepted")
 
 
 def test_physics_output_finite_and_in_range():
@@ -246,6 +262,7 @@ def main():
         [
             test_input_matches_run_file,
             test_sage_physics_baseline,
+            test_output_names_reject_doctored_production_fields,
             test_physics_output_finite_and_in_range,
         ],
         "SAGE Full-Physics Baseline (test_scientific_sage_physics_baseline.py)",

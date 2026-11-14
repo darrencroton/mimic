@@ -37,8 +37,12 @@
 
 struct FoFWorkspace; /* fof_workspace.h */
 
-/** Maximum number of registered modules; the generated module_init.c asserts against it. */
-#define MAX_MODULES 64
+/**
+ * Maximum number of registered modules; the generated module_init.c asserts against it. The
+ * headroom is for a model package's modules, the test-build fixtures, and the probe modules a
+ * unit test registers on top of both.
+ */
+#define MAX_MODULES 128
 
 /**
  * @brief   Phase module configuration entry
@@ -177,6 +181,13 @@ int module_system_init(void);
  * PROCESSING_MODE_PER_EVENT modules.
  *
  * Execution order within phase:
+ * 0. In the rate phase (a phase under modules.phases whose entries are all
+ *    PROCESSING_MODE_RATES; at most one per run), the substep's rate segment:
+ *    each component of the workspace (the whole group when a configured
+ *    transfer goes to the central or a module reads it, else each galaxy) is
+ *    gathered, integrated and written back on success (rate_assembly.h), every
+ *    law running as RUNNING_CALLBACK_RATE inside the phase's event-dispatch
+ *    window. A failed segment is fatal. The rate phase runs no other pass.
  * 1. All PROCESSING_MODE_FULL_HALO modules execute with full halo array
  * 2. Events emitted by full-halo modules are dispatched only to subscribed
  *    PROCESSING_MODE_PER_EVENT modules (resolved from module_info.yaml events.consumes)
@@ -275,6 +286,70 @@ void module_release_record_creation_scratch(void);
 int64_t module_record_creation_staging_blocks(void);
 
 /**
+ * @brief   Bytes the rate phase's scratch holds (diagnostic)
+ *
+ * The scratch is one tracked MEM_UTILITY allocation holding a segment's tables
+ * and the integrator's workspace, grown to the high water of the largest
+ * component the run has integrated and released by module_system_cleanup().
+ * For tests and diagnostics; zero before the first rate segment and after cleanup.
+ */
+size_t module_rate_scratch_bytes(void);
+
+/*
+ * Discrete-phase ledger. Only when a rate phase is configured, execute_phase()
+ * sums each conserved total (generated/reservoir_table.h) over the FoF
+ * workspace's active rows (a galaxy and Type != 3, in workspace order, then
+ * reservoir table order) before and after each dispatch unit of every other
+ * FoF phase. A dispatch unit is one full-halo module's call together with the
+ * per-event consumers its events trigger, the commit of the records it created
+ * and the safety dispatch after it; or the phase's by-galaxy pass as a whole.
+ * Nothing changes the workspace between units, so one unit's after-sums are
+ * the next unit's before-sums; the phase's first unit's before-sums are the
+ * workspace as the phase finds it (a value left by initialisation, by a phase
+ * outside the ledger or by a post_snapshot module). A total left not finite
+ * (its sum or its sum of magnitudes) is fatal whatever the declarations, naming
+ * the phase, the unit and the total, and a total that enters the first unit
+ * not finite is fatal too, reported as having entered it. A total changes when
+ * |after - before| exceeds
+ * max(8u (n_F + 2), 2^-40) S_F, u = 2^-53, n_F the larger of the total's entry
+ * counts before and after and S_F the larger of its sums of magnitudes; the
+ * floor keeps a conservative module's own rounding over many exchanges in one
+ * unit from reading as a change, so a change smaller than about 1e-12 of a
+ * total's magnitude within one unit is not detected. A change in a full-halo
+ * unit is fatal, naming the phase, the module and the total, unless that
+ * module, or a per-event module configured in the phase that subscribes to an
+ * event it emits, lists the total in changes_totals; a change in the by-galaxy
+ * pass is fatal unless a by-galaxy module configured in the phase lists it. A
+ * covered change is counted per total in the run's rate statistics. Changes
+ * made by a post_snapshot module are outside the ledger. With no rate phase the
+ * hook is never entered and no sum is computed.
+ */
+
+struct RateAssemblyPlan; /* rate_assembly.h */
+struct RateStatistics;   /* rate_assembly.h */
+
+/** @brief The rate phase's plan, or NULL when no rate phase is configured. */
+const struct RateAssemblyPlan *module_rate_plan(void);
+
+/**
+ * @brief   This task's rate statistics, or NULL when no rate phase is configured
+ *
+ * Zeroed by module_system_init(); each rate segment and each covered discrete
+ * change adds to it. The caller may merge other tasks' statistics into it in
+ * place before it is written (main.c does, at run end); valid until
+ * module_system_cleanup().
+ */
+struct RateStatistics *module_rate_statistics(void);
+
+/**
+ * @brief   Discrete-phase dispatch units the ledger has checked since module_system_init()
+ *
+ * For tests and diagnostics: zero whenever no rate phase is configured, because
+ * the hook is never entered.
+ */
+int64_t module_discrete_ledger_units(void);
+
+/**
  * @brief   Kind of module callback the registry is currently running
  *
  * Set and restored by the registry around every module call, including
@@ -290,6 +365,7 @@ enum RunningCallbackKind {
   RUNNING_CALLBACK_PER_EVENT, /**< A process_per_event process() call */
   RUNNING_CALLBACK_BY_GALAXY, /**< A process_by_galaxy process() call */
   RUNNING_CALLBACK_SNAPSHOT,  /**< A process_snapshot() call from execute_post_snapshot() */
+  RUNNING_CALLBACK_RATE,      /**< A process_rates rates() call from the rate phase */
   RUNNING_CALLBACK_CLEANUP,   /**< A module's cleanup() */
 };
 

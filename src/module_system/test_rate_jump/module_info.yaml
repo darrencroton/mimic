@@ -1,0 +1,79 @@
+# Module Metadata: test_rate_jump
+#
+# ⚠️  WARNING: This module is for TESTING INFRASTRUCTURE ONLY ⚠️
+#
+# DO NOT USE IN PRODUCTION RUNS
+#
+# Purpose: the rate fixture's discrete jump. A full-halo module that merges every
+# orphan satellite whose stars exceed a threshold into the FoF central, moving each of its
+# reservoirs and tracers and retiring the row, optionally destroying a fraction of
+# what it moves. It declares both of the fixture's conserved totals in
+# changes_totals, so the discrete-phase ledger counts a lossy merge and refuses
+# nothing. The behaviour is documented in README.md.
+#
+# For metadata schema documentation, see:
+#   docs/DEVELOPER-GUIDE.md#module-metadata-schema
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: test_rate_jump
+  display_name: "Test Rate Jump Fixture"
+  description: "Rate fixture: merges orphan satellites into the central. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+
+  # ===========================================================================
+  # Processing Configuration
+  # ===========================================================================
+
+  # test_rate_jump.c is implicit (auto-included)
+
+  supported_processing_modes: [process_full_halo]
+
+  # The conserved totals a merge changes when it destroys a fraction of what it moves.
+  changes_totals: [rate_fixture_mass, rate_fixture_tracer]
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  # The row type the module reads and retires, and the reservoirs and tracers a merge moves.
+  dependencies:
+    properties:
+      - Type
+      - RateFixtureHot
+      - RateFixtureCold
+      - RateFixtureStars
+      - RateFixtureHotTracer
+      - RateFixtureColdTracer
+      - RateFixtureStarsTracer
+    parameters:
+      - TestRateJumpStarsThreshold
+      - TestRateJumpLossFraction
+
+  # ===========================================================================
+  # Tests
+  # ===========================================================================
+
+  # Exercised by tests/integration/test_rate_phase.py, which the test registry
+  # discovers directly.
+  tests:
+    unit: null
+    integration: null
+    scientific: null
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: README.md
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []

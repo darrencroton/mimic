@@ -198,13 +198,14 @@ for each substep:
 post_timestep runs once
 ```
 
-Inside each phase, Mimic groups modules by **processing mode** — the contract describing what slice of the workspace a module receives:
+Inside a phase, Mimic groups modules by **processing mode** — the contract describing what slice of the workspace a module receives. A phase is either a *discrete* phase, whose modules use `process_full_halo`, `process_per_event` or `process_by_galaxy`, or the one optional *rate* phase, whose modules all use `process_rates`:
 
 - `process_full_halo`: the module receives the whole FoF workspace at once. Use this for calculations that need the central and satellites together, such as infall budgets, merger clocks, and event producers.
 - `process_per_event`: the module runs only when a subscribed full-halo producer emits an event (a merger, say). The module receives the event target galaxy with `ctx->active_event` set.
 - `process_by_galaxy`: Mimic loops through the FoF workspace and calls the module once per galaxy. Use this for local galaxy physics such as cooling, star formation, and feedback.
+- `process_rates`: the module declares conservative transfers between reservoirs (cooling from hot gas to cold gas, say) and returns their rate coefficients for a galaxy at a trial state; it never changes a galaxy itself. Mimic integrates the transfers of every `process_rates` module in the phase together across each substep, so these modules have no order. See [Rate phases](#rate-phases).
 
-Full-halo modules always run before by-galaxy modules within a phase. Events emitted by full-halo producers are dispatched immediately to subscribed per-event consumers, preserving producer-side event ordering. YAML order is preserved within the same processing mode; it does not make a by-galaxy module run before a full-halo module in the same phase.
+Within a discrete phase, full-halo modules always run before by-galaxy modules. Events emitted by full-halo producers are dispatched immediately to subscribed per-event consumers, preserving producer-side event ordering. YAML order is preserved within the same processing mode; it does not make a by-galaxy module run before a full-halo module in the same phase. The phases themselves run in the order listed, and the rate phase, when there is one, runs in its listed position among them.
 
 (One shipped exception worth knowing about: `sage_satellite_stripping` runs as `process_by_galaxy` even though it mutates the FoF central through `ctx->central_galaxy`, because the by-galaxy placement is required to match SAGE's strip-then-cool timing for each satellite.)
 
@@ -243,6 +244,41 @@ modules:
 ```
 
 `post_snapshot` is optional and only the horizontal driver runs it; see [Snapshot-wide modules](#snapshot-wide-modules).
+
+`modules.rate_integration` is optional and sets how the rate phase is integrated. The rate phase is a phase under `modules.phases` whose entries are all `process_rates`; a run has at most one, and `process_rates` anywhere else (in `pre_timestep`, `post_timestep`, `post_snapshot`, or mixed with another mode in one phase) stops the run at startup. With a rate phase and no section, every key takes its default:
+
+```yaml
+modules:
+  phases:
+    rates:
+      - my_rate_module: process_rates
+  rate_integration:
+    scheme: explicit
+    relative_tolerance: 1.0e-4
+    absolute_tolerance: 1.0e-7
+    max_steps_per_segment: 100000
+    max_rejections_per_step: 30
+    check_purity: false
+```
+
+| Key | Default | Allowed values | Meaning |
+|---|---|---|---|
+| `scheme` | `explicit` | `explicit` or `implicit` | `explicit`: third-order embedded Runge–Kutta with a positivity guard. `implicit`: first-order linearly implicit (Patankar–Euler), experimental and never the default; see "Choosing the scheme" below |
+| `relative_tolerance` | `1e-4` | a number in (0, 1) | Error tolerance relative to each content |
+| `absolute_tolerance` | `1e-7` | a number in (0, 1) | Error tolerance relative to a scale: the largest of the galaxy's total of the conserved quantity at the start of the segment, at the start of the step and at the trial end (floored at 1e-12 times the largest of the component's sums of that total at the same three states) |
+| `max_steps_per_segment` | `100000` | an integer of at least 1 | Steps one segment (one substep of one component) may attempt, accepted and rejected |
+| `max_rejections_per_step` | `30` | an integer of at least 20 | Consecutive rejections of one step before the segment fails. A segment first tries the whole segment as one step and reaches a small step through consecutive rejections; an error rejection shrinks the step to no less than a fifth, so fewer than twenty could fail a segment before its step is small enough to be accepted |
+| `check_purity` | `false` | `true` or `false` | `true` runs the purity probe: at the first law evaluation of each segment every law is evaluated a second time, in reversed order, and the run fails, naming the module and transfer, if any coefficient differs in any bit or a law wrote to the scratch copy it was given. It catches laws that keep state between calls and laws that write, not every hidden read; a law must be a pure function of its row, state and time. This is how a campaign checks the laws of a real model in any build. `false` evaluates no law beyond the integrator's own |
+
+The section is refused at startup, naming the key, when it has an unknown or non-scalar key, a value outside its range (`check_purity` accepts exactly `true` or `false`), or no rate phase to apply to; `rate_integration` is also reserved as a `phases:` name. A segment that cannot be integrated ends the run; [Rate-phase failure](#runtime-issues) describes the message and the failure file.
+
+**Reading the tolerances.** Each reservoir and tracer entry is weighed by `absolute_tolerance` times the scale above plus `relative_tolerance` times its own content. Two consequences follow. A reservoir that drains is followed to an absolute accuracy of `absolute_tolerance` times its galaxy's segment-start total, not relatively through every decade it falls. A reservoir that holds a small fraction of its galaxy's total is held to that absolute accuracy, not to `relative_tolerance`, so its relative error can be large. Tighten `absolute_tolerance` when a small reservoir matters.
+
+**Choosing the scheme.** Use `explicit`. The `implicit` scheme is experimental: its step control is proven on test-build fixtures only.
+
+- It is first order, and the tolerance is not the error it delivers. The unit test of its stiff pair (`tests/unit/test_rate_implicit.c`) accepts a relative error of up to 5% at a relative tolerance of `1e-3`, where the explicit scheme's error falls with its tolerance (`tests/unit/test_rate_integrator.c` holds the explicit linear chain's error to a strict decrease, by a factor of 5 to 20 per decade of tolerance, from `1e-3` to `1e-10`).
+- Its accepted-step count on a stiff transient (a fast exchange between reservoirs) does not grow with the exchange rate. The same unit test file holds the stiff pair started off its slow manifold to between 25 and 150 accepted steps per segment, the largest at most 4 times the smallest, for exchange rates of `1e3`, `1e6`, `1e9` and `1e12`, and started on its slow manifold to counts equal within one. The explicit scheme needs about the rate times the segment length divided by 1.8 steps of four law evaluations each (`tests/unit/test_rate_integrator.c` holds the stiff pair to between that count and 1.1 times it plus 10). So the implicit scheme pays for itself only when the rate times the segment length is in the hundreds or more; below that the explicit scheme is cheaper as well as far more accurate.
+- It integrates an ill-posed law, such as a sink whose coefficient diverges as its donor empties, without complaint, where the explicit scheme shrinks its step until the segment fails with a named cause. This is why it is never the default.
 
 `TimestepScheme` controls how `SubSteps` is interpreted. The default `fixed` scheme runs exactly `SubSteps` substeps per snapshot interval (`SubSteps` must be at least 1). The opt-in `dynamic` scheme treats `SubSteps` as the requested resolution per halo dynamical time, computes the central halo's `t_dyn = Rvir / Vvir`, and runs `ceil(deltaT * SubSteps / t_dyn)` substeps clamped to at least `MinDynamicSubsteps` (optional top-level key, default 1, a floor that also applies to a degenerate interval) and at most `MaxDynamicSubsteps` (optional top-level key, default 200) — a safety ceiling against pathological snapshot spacing, not a resolution target, so raise it only if it is clipping the redshift range you care about. `SubSteps`, `MinDynamicSubsteps` and `MaxDynamicSubsteps` must each be between 1 and 100,000, and `MinDynamicSubsteps` may not exceed `MaxDynamicSubsteps`. Dynamic mode therefore uses fewer substeps when a snapshot interval is shorter than the dynamical time and more when it spans many dynamical times. HDF5 master outputs record `SubSteps`, `TimestepScheme` and `MaxDynamicSubsteps` under `RunProperties`; `MinDynamicSubsteps` is recorded with the rest of the run file in the run's `metadata/` directory.
 
@@ -300,6 +336,33 @@ Module parameters have no global defaults in the core. A module loads and valida
 #### Creating galaxy records
 
 Most modules update galaxies the merger trees already supply. A `process_full_halo` module may also ask core to create new galaxy records, as the `hod` package does for its synthetic satellites. Core appends the created records to the FoF group when the creating module returns, so every later module, phase and substep of that snapshot sees them as ordinary galaxies, they are written beside their host's own galaxies, and the next snapshot inherits them as Type 2 orphans. Created records get a negative `UniqueGalaxyID`, deterministic for a fixed dataset and run file; tree galaxies keep their positive IDs. Nothing in a run file switches this on: a module either creates records or it does not, and a run whose modules create none is unchanged. The contract (who may create, what a created record starts as, identity, memory and the footguns) is the [Record Creation Contract](DEVELOPER-GUIDE.md#record-creation-contract) in the developer guide.
+
+#### Rate phases
+
+A phase under `modules.phases` whose entries are all `process_rates` is a **rate phase**. Its modules do not move gas themselves: each declares, in its `module_info.yaml`, the transfers it governs (from one reservoir to another, or to or from the outside) and returns how fast each runs, and Mimic integrates all of them as one coupled system across each substep. They are for continuous exchanges that should conserve what they move and should not depend on which module is listed first; the order of a rate phase's modules in the run file does not change the output. A run has at most one rate phase.
+
+```yaml
+modules:
+  phases:
+    rates:
+      - test_rate_supply:    process_rates
+      - test_rate_formation: process_rates
+      - test_rate_feedback:  process_rates
+      - test_rate_stripping: process_rates
+  rate_integration:
+    scheme: explicit
+```
+
+What to expect:
+
+- **No shipped model uses it yet.** The only rate modules are the test-build fixtures under `src/module_system/` (built with `make TEST_BUILD=yes`), which exist to prove the mode on a model-neutral problem; no model package ships one, and the mode makes no claim about any model's physics. The run files under `models/` declare no rate phase and their output is unchanged by the mode.
+- **Integration settings** live in the optional `modules.rate_integration` section ([Run File Structure](#run-file-structure) lists the keys). The default is an explicit scheme with error control that never lets a reservoir go negative; the `implicit` scheme is experimental. `check_purity: true` evaluates every law a second time in reversed order and fails the run if a coefficient differs or a law wrote to its scratch copy.
+- **Conservation is checked, not assumed.** Each segment is checked to close, per conserved total, to rounding. A discrete module that changes a conserved total while a rate phase is configured must declare it (`changes_totals`) or the run stops, naming the phase, module and total; a change smaller than about 1e-12 of a total within one dispatch unit is not detected. A `post_snapshot` module is not checked.
+- **Reservoirs enter a segment finite and not negative.** A reservoir or tracer that is negative or not finite when a rate segment starts ends the run before any law runs. A discrete module beside a rate phase must therefore not leave a negative rounding residue (`x -= f * x` arithmetic can); see [Rate-phase failure](#runtime-issues).
+- **Failures stop the run.** A segment that cannot be integrated (a coefficient that is negative, not finite or diverges, a step or rejection budget exhausted, a total that does not close) ends the run with a message that names its cause and segment time, and the module, transfer, galaxy and entry where the cause has them, and leaves `rate_failure_task<N>.txt` in the output directory. See [Rate-phase failure](#runtime-issues).
+- **Output records the integrator.** An HDF5 run with a rate phase records the settings, the declared transfers and integer step statistics ([Reading HDF5 Output](#reading-hdf5-output)); other runs record none of it.
+
+The contract a rate module follows (the coefficient each kind of transfer returns, purity, the integration domain, mixed elapsed times) is the [Rate Callback Contract](DEVELOPER-GUIDE.md#rate-callback-contract) in the developer guide.
 
 #### Snapshot-wide modules
 
@@ -652,6 +715,7 @@ Per-file HDF5 output contains:
                           # @git_branch, @git_date, @build_date, @hdf5_format_version
   EnabledModules
   EventContracts          # present only when event contracts exist
+  RateTransfers           # present only when a rate phase is configured
   Parameters
   Redshifts
   FieldMetadata           # field names, units, descriptions (once per file)
@@ -686,6 +750,29 @@ A horizontal run's master links one partition file per requested output snapshot
 ```
 
 `RunProperties/EnabledModules`, `RunProperties/Parameters`, and `RunProperties/EventContracts` are the main reproducibility datasets: months later, you can recover exactly which physics pipeline and parameter values produced a file without finding the original run YAML.
+
+**Rate phase records.** When the run file configures a rate phase (a phase of `process_rates` modules, integrated under `modules.rate_integration`), and only then, two more records are written; a run without one carries neither, and `hdf5_format_version` is the same either way.
+
+- `RunProperties/RateTransfers`, in the master file and every per-file output: one row per transfer of every module configured in the rate phase, in global transfer order (module name, then the order the module declares its transfers). Its fields are `module`, `transfer`, `from` and `to` (a property name, or `external`), `to_record` (`self` or `central`), `kind` (`internal`, `sink`, `source` or `slaved_source`) and `master` (a slaved source's master as `<module>.<transfer>`, empty otherwise).
+- `RunProperties/RateIntegration`, in the master file only: a group whose attributes record the settings the run used — `scheme`, `relative_tolerance`, `absolute_tolerance`, `max_steps_per_segment`, `max_rejections_per_step`, `check_purity` (`true` or `false`) and `method` (one sentence naming the scheme's method and its fixed controller constants) — and whose datasets hold the run's step statistics, merged over every MPI task:
+
+| Dataset | Contents |
+|---|---|
+| `StepTotals` | One row: `segments` (each component of a FoF group integrated across one substep), `accepted_steps`, `rejected_steps` and `law_evaluations` (each one call of every rate module's law per row of the component) |
+| `StepMaxima` | One row: the most accepted steps, rejected steps and law evaluations in any one segment, and the largest `k_max` (over the entries holding content, the largest of an entry's segment length times the sum of its outflow coefficients, at any state where the laws were evaluated) |
+| `KMaxHistogram` | Segments by their largest `k_max`, one bin per octave `[2^k, 2^(k+1))` for `k` from the attribute `octave_min_exponent` to `octave_max_exponent`, after a bin for zero and one for values below the lowest octave, and before a last bin for values above the highest |
+| `AcceptedStepsHistogram` | Segments by their number of accepted steps `n`, binned by bit length: bin 0 holds `n = 0`, bin `b` holds `2^(b-1) <= n < 2^b` |
+| `DeclaredDiscreteChanges` | Per conserved total (`total`, `count`): the discrete-phase dispatch units that changed the total beyond rounding under a `changes_totals` declaration |
+
+Every statistic is an integer count or an exact maximum, so the values are the same whatever the MPI task count, the chunking or the driver; each histogram's counts sum to `StepTotals.segments`. The run also logs one `Rate integration:` line summarising them at the end, which is all a binary-output run records.
+
+```python
+with h5py.File("output/<run>/model.hdf5", "r") as f:
+    rate = f["RunProperties/RateIntegration"]
+    print(rate.attrs["scheme"][0].decode(), rate["StepTotals"][0]["segments"])
+    for row in f["RunProperties/RateTransfers"][:]:
+        print(row["module"].decode(), row["transfer"].decode(), row["kind"].decode())
+```
 
 ### Reading Binary Output
 
@@ -806,9 +893,20 @@ make clean && make
 ./scripts/first_run.sh
 ```
 
-**Module-pipeline rejection at startup**: Mimic checks the module pipeline before any module is initialised, and the message names the phase or module. The snapshot-wide rejections are: `process_snapshot` placed in `pre_timestep`, `post_timestep` or a `phases:` entry (it belongs only under `modules.post_snapshot`); a FoF mode (`process_full_halo`, `process_per_event`, `process_by_galaxy`) listed under `post_snapshot` (use `process_snapshot`, which the module must advertise); a non-empty `post_snapshot` under a vertical reader (the vertical driver never holds a whole snapshot, so use a horizontal package or remove the phase; absent, `null` and `[]` are accepted); a non-empty `post_snapshot` in a horizontal run with `input.forest_chunks` above 1 (the message says a chunked sweep "never holds a whole snapshot's population at once, so the snapshot scope needs forest_chunks: 1"; set `forest_chunks: 1` or distribute over MPI ranks to reduce memory); a module listed more than once in `post_snapshot`, or an entry with more than one `name: mode` pair in any phase (each module needs its own `- name: mode` item, otherwise the extra pair would be silently dropped). Separately, `sham_rank_match` checks its own placement in its `init()`, after that pipeline validation and still before any snapshot is loaded, and fails the run when it is configured other than exactly once in `pre_timestep` as `process_full_halo` and once in `post_snapshot` as `process_snapshot` (it needs both phases, so it runs only under a horizontal package), in `post_timestep` or in a substep phase, or with an output snapshot above `ShamTargetRedshiftMax`.
+**Module-pipeline rejection at startup**: Mimic checks the module pipeline before any module is initialised, and the message names the phase or module. The snapshot-wide rejections are: `process_snapshot` placed in `pre_timestep`, `post_timestep` or a `phases:` entry (it belongs only under `modules.post_snapshot`); a FoF mode (`process_full_halo`, `process_per_event`, `process_by_galaxy`) listed under `post_snapshot` (use `process_snapshot`, which the module must advertise); a non-empty `post_snapshot` under a vertical reader (the vertical driver never holds a whole snapshot, so use a horizontal package or remove the phase; absent, `null` and `[]` are accepted); a non-empty `post_snapshot` in a horizontal run with `input.forest_chunks` above 1 (the message says a chunked sweep "never holds a whole snapshot's population at once, so the snapshot scope needs forest_chunks: 1"; set `forest_chunks: 1` or distribute over MPI ranks to reduce memory); a module listed more than once in `post_snapshot`, or an entry with more than one `name: mode` pair in any phase (each module needs its own `- name: mode` item, otherwise the extra pair would be silently dropped). The rate-phase rejections are: `process_rates` in `pre_timestep`, `post_timestep` or `post_snapshot`; a phase that mixes `process_rates` with another mode; a second rate phase; a module listed twice in the rate phase; a slaved source whose master module is not in the rate phase; a cycle among the conserved totals the rate modules couple; a transfer whose ends the generated reservoir table does not hold (rebuild with `make generate`); and a `modules.rate_integration` section with no rate phase, an unknown key or an out-of-range value. Each names the phase, module, key or totals. Separately, `sham_rank_match` checks its own placement in its `init()`, after that pipeline validation and still before any snapshot is loaded, and fails the run when it is configured other than exactly once in `pre_timestep` as `process_full_halo` and once in `post_snapshot` as `process_snapshot` (it needs both phases, so it runs only under a horizontal package), in `post_timestep` or in a substep phase, or with an output snapshot above `ShamTargetRedshiftMax`.
 
-**Record-creation refusals**: `module_create_record` returns an error (logged as `module_create_record refused for module '<name>': ...`) and the creating module fails the run. The reasons, each named in the message: it was called from `init()`, `cleanup()`, a `process_by_galaxy`, `process_per_event` or `process_snapshot` callback, or outside any module callback (only a running `process_full_halo` callback may create; configure a creating module as `process_full_halo`); the `ModuleContext` was not the running callback's (`mismatched ModuleContext`); the row pointer was NULL; the host index is outside the committed rows; the host is itself a created record (`created rows cannot host`); the host is not Type 0 or 1, or has no galaxy; the host row has a `CentralHalo` other than its own index (`host row ... has CentralHalo ...; only the Type 0/1 row inheritance assembled for a subhalo slice (CentralHalo equal to its own row) can host`: a row a module promoted to Type 1 cannot host); or the host already has 1024 created records in this FoF step (the identity radix, a fixed number, not a physics cap). A module that creates in a substep phase creates once per substep unless it guards on `ctx->substep_number`. An event that names a row created in the same callback is rejected too: `module_emit_event invalid target_index=... outside the ... committed rows`; a later callback may name it.
+**Rate-phase failure (`rate_failure_task<N>.txt`)**: The run ended with `Rate segment failed: cause <cause>...`, one line of the form `Rate segment failed: cause <cause>[, module '<m>', transfer '<t>'][, total '<total>'][, entry '<e>'], [a component of <N> row(s) from ]workspace row <w> (UniqueGalaxyID <id>), tau <tau>`, preceded by a few detail lines. The cause (`bad_coefficient`, `step_budget`, `rejection_budget`, `step_underflow`, `ledger` or `tracer_bound`) and `tau` are always present; each other field appears only where the cause has it. A law that returned non-zero is named by its module and return code. A `ledger` failure names no module, transfer or row: it names the conserved total and, in place of a galaxy, the component by its row count and first row. A `tracer_bound` failure names the tracer, its total and its first source when it has one. Read the file in the output directory: it holds the build's `mimic_version` and `git_commit`, the phase, snapshot, substep, `base_time` and `redshift`, the settings, the cause, each row's `dT` and segment length, the failing component's segment-start state and the coefficients of the failing evaluation as exact hexadecimal floats (`not_evaluated` for a coefficient whose law had not yet returned). A failed purity probe ends the run with a different line, `Rate law is impure: module '<m>', transfer '<t>', workspace row <w> (UniqueGalaxyID <id>), tau <tau>: <reason>`, and writes the same file with the cause `impure_law`. The file is written only on a failure, so an old file from an earlier failed run may sit beside new output; its `mimic_version`, `git_commit` and snapshot tell it from a fresh one. The cause tells where to look:
+
+- `bad_coefficient`, `step_underflow` and `rejection_budget` usually mean a module's law returned a negative, non-finite or diverging coefficient. Rerun with `modules.rate_integration.check_purity: true` first, because a law that keeps state between calls or writes makes every other symptom unreliable.
+- `step_budget` means the system is stiff for the explicit scheme at the configured tolerances (raise `max_steps_per_segment` or loosen the tolerances only after confirming the law is right).
+- `tracer_bound` means a tracer grew above its parent by more than rounding allows. A tracer a rounding error above its parent when the segment starts passes. A tracer with sources of its own (a yield) that overtakes its parent fails by design; the law that feeds it must vanish as the pristine part of its parent is exhausted, and the two schemes can differ in when such a law fails.
+- `ledger` means the segment's change in a conserved total did not match its external inflows and outflows to rounding, which points at a law whose declared transfers do not conserve.
+
+**Reservoir not valid when a rate segment starts**: A message `Rate phase '<phase>' at snapshot <n>, substep <i> of <m>: workspace row <w> (UniqueGalaxyID <id>, Type <t>) enters the rate segment with <Property> = <value>; a reservoir or tracer must be finite and not negative when a segment starts` ends the run before any law runs. The message names the phase, snapshot, substep, row, `UniqueGalaxyID`, `Type`, property and value, and does not name a module; it tells you to check the module that last wrote that property. The value was left before the segment by a discrete phase or by initialisation. Do not leave a negative rounding residue (for example from `x -= f * x`). Nothing is clamped.
+
+**Undeclared change to a conserved total**: With a rate phase configured, a message `Undeclared change to conserved total '<total>' in phase '<phase>' by module '<module>'` (or by the phase's by-galaxy pass) means a dispatch unit changed a reservoir total without listing it in `changes_totals` in its `module_info.yaml`. A unit is a full-halo module's call together with the per-event consumers its events trigger, so the named module is the full-halo module of the unit: the change may have been made by a per-event consumer its events triggered. Declare the total in `changes_totals` of the module that changes it if the change is intended, or fix the module if it is not. A message `Conserved total '<total>' is not finite after <unit> in phase '<phase>'` is fatal whatever `changes_totals` declares: a discrete module left a reservoir infinite or not a number. A message `Conserved total '<total>' entered <unit> in phase '<phase>' not finite` means the total was already infinite or not a number when the phase began: the value was left by initialisation, by a phase that runs without the ledger or by a `post_snapshot` module.
+
+**Record-creation refusals**: `module_create_record` returns an error (logged as `module_create_record refused for module '<name>': ...`) and the creating module fails the run. The reasons, each named in the message: it was called from `init()`, `cleanup()`, a `process_by_galaxy`, `process_per_event`, `process_snapshot` or `process_rates` callback, or outside any module callback (only a running `process_full_halo` callback may create; configure a creating module as `process_full_halo`); the `ModuleContext` was not the running callback's (`mismatched ModuleContext`); the row pointer was NULL; the host index is outside the committed rows; the host is itself a created record (`created rows cannot host`); the host is not Type 0 or 1, or has no galaxy; the host row has a `CentralHalo` other than its own index (`host row ... has CentralHalo ...; only the Type 0/1 row inheritance assembled for a subhalo slice (CentralHalo equal to its own row) can host`: a row a module promoted to Type 1 cannot host); or the host already has 1024 created records in this FoF step (the identity radix, a fixed number, not a physics cap). A module that creates in a substep phase creates once per substep unless it guards on `ctx->substep_number`. An event that names a row created in the same callback is rejected too: `module_emit_event invalid target_index=... outside the ... committed rows`; a later callback may name it.
 
 **Created-record identity space does not fit (`does not fit int64`)**: At startup each driver logs one line, `Created-record identity space (<driver>, ...): units=..., rows_per_unit=..., radix=1024: fits int64` or `...does not fit int64; this run cannot create records`. A run whose modules create nothing is never affected, whatever the verdict. When the space does not fit, the first `module_create_record` call fails with `the <driver> driver's created-record identity space does not fit int64 (units=..., rows_per_unit=..., radix=1024)`. The measured budgets: the committed fixtures, mini-Millennium and full Millennium (vertical and horizontal) fit; the vertical driver on Shin-Uchuu ASCII and on full Uchuu does not, because the product of their forest count and per-forest identity range exceeds the budget (Shin-Uchuu's tree IDs already use about 61 bits). Those runs proceed as before but cannot run a record-creating module such as `hod_populate`; use the horizontal driver where a horizontal package exists (there is none for full Uchuu, so its horizontal budget is not evaluated). The developer guide records pair identity as the escape if a future dataset needs both.
 

@@ -8,7 +8,9 @@ module:
 
   name: template_module                    # REQUIRED: Module name (lowercase_with_underscores)
 
-  # process_snapshot (snapshot family, horizontal post_snapshot phase) is also a valid mode; see README.md
+  # process_snapshot (snapshot family, horizontal post_snapshot phase) and process_rates (rate family,
+  # the rate phase) are also valid modes; see README.md. A process_rates module needs the rates: block
+  # below and no FoF process callback of its own (it implements <name>_rates).
   supported_processing_modes:              # REQUIRED: Which modes this module supports (usually just one)
     - process_by_galaxy                    #   process_by_galaxy: Per-galaxy processing (ngal=1)
     - process_per_event                    #   process_per_event: Per-event processing (ngal=1, ctx->active_event set)
@@ -19,6 +21,39 @@ module:
   #     startup refuses it under modules.post_snapshot when the run uses more than one MPI task.
   #   collective: reaches every whole-population quantity through src/core/snapshot_collectives.h.
   # snapshot_distribution: serial_only
+
+  # process_rates modules only (required with process_rates, refused otherwise): the conservative
+  # transfers the module governs. Each transfer names both ends, a galaxy property declared with a
+  # reservoir: mapping of kind reservoir (or a tracer as `to` when `from` is external), or the word
+  # external. The law returns one coefficient per transfer, in this order, and must be pure.
+  #   from + to both reservoirs  internal transfer, coefficient is a specific rate (1/time)
+  #   to: external               sink, specific rate (1/time)
+  #   from: external             source, absolute rate (content/time)
+  #   from: external + slaved_to slaved source, dimensionless multiple of <module>.<transfer>'s flux
+  # to_record: central puts the recipient on the FoF central; reads_central: true lets the law read it.
+  # An internal transfer whose from and to are one reservoir needs to_record: central (with self it
+  # moves nothing and is refused). An observer is a reservoir kind observer property that gains the
+  # amount its transfer moved over the segment, once the segment succeeds; a repeated
+  # (property, transfer) pair in one module is refused.
+  # rates:
+  #   reads_central: false
+  #   transfers:
+  #     - name: cooling                    # C identifier; the coefficient slot is <MODULE>_TRANSFER_<NAME>
+  #       from: MyHotReservoir
+  #       to: MyColdReservoir
+  #       to_record: self                  # self (default) | central
+  #   observers:
+  #     - property: MyObserverProperty     # a property of reservoir kind observer
+  #       transfer: cooling
+  # See docs/DEVELOPER-GUIDE.md#rate-callback-contract
+
+  # Discrete modules only (process_full_halo, process_per_event, process_by_galaxy): the conserved
+  # totals the module may change. Read only when a rate phase is configured, where an undeclared
+  # change to a conserved total is fatal (a change below about 1e-12 of the total within one dispatch
+  # unit is not detected). Beside a rate phase a discrete module must also leave every reservoir and
+  # tracer finite and not negative: a negative rounding residue ends the run when the next rate
+  # segment starts. Totals are named by the reservoir: mapping of properties.
+  # changes_totals: [my_total]
 
   # ============================================================================
   # RECOMMENDED FIELDS (for production modules)

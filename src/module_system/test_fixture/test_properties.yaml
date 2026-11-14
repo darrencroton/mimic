@@ -11,6 +11,12 @@
 # means production model packages no longer carry test-only metadata and a new
 # model does not have to declare a dummy property just to compile the fixtures.
 # See src/module_system/test_fixture/module_info.yaml (depends on TestDummyProperty).
+#
+# The RateFixture* properties are the state of the model-neutral rate fixture:
+# three reservoirs in the conserved total rate_fixture_mass, one tracer of each
+# in the total rate_fixture_tracer, and one observer. They are written to output
+# so the standard comparators and range checks see them; a pipeline that does
+# not touch them writes 0, which every range and sentinel list here admits.
 
 galaxy_properties:
 
@@ -24,3 +30,87 @@ galaxy_properties:
     output_source: galaxy_property
     range: [0.0, 1.0]  # Simple range for testing
     sentinels: []  # No special sentinels
+
+  - name: RateFixtureHot
+    type: double
+    units: 1e10 Msun/h
+    description: Rate fixture hot reservoir mass (TEST BUILDS ONLY)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]  # A row the rate fixture has not reached holds none
+    reservoir: {kind: reservoir, total: rate_fixture_mass}
+
+  - name: RateFixtureCold
+    type: double
+    units: 1e10 Msun/h
+    description: Rate fixture cold reservoir mass (TEST BUILDS ONLY)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]  # A row the rate fixture has not reached holds none
+    reservoir: {kind: reservoir, total: rate_fixture_mass}
+
+  - name: RateFixtureStars
+    type: double
+    units: 1e10 Msun/h
+    description: Rate fixture stellar reservoir mass (TEST BUILDS ONLY)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]  # A row the rate fixture has not reached holds none
+    reservoir: {kind: reservoir, total: rate_fixture_mass}
+
+  - name: RateFixtureHotTracer
+    type: double
+    units: 1e10 Msun/h
+    description: Rate fixture tracer mass carried by RateFixtureHot (TEST BUILDS ONLY)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]  # A row the rate fixture has not reached holds none
+    reservoir: {kind: tracer, total: rate_fixture_tracer, parent: RateFixtureHot}
+
+  - name: RateFixtureColdTracer
+    type: double
+    units: 1e10 Msun/h
+    description: Rate fixture tracer mass carried by RateFixtureCold (TEST BUILDS ONLY)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]  # A row the rate fixture has not reached holds none
+    reservoir: {kind: tracer, total: rate_fixture_tracer, parent: RateFixtureCold}
+
+  - name: RateFixtureStarsTracer
+    type: double
+    units: 1e10 Msun/h
+    description: Rate fixture tracer mass carried by RateFixtureStars (TEST BUILDS ONLY)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]  # A row the rate fixture has not reached holds none
+    reservoir: {kind: tracer, total: rate_fixture_tracer, parent: RateFixtureStars}
+
+  - name: RateFixtureFormed
+    type: double
+    units: 1e10 Msun/h
+    description: Rate fixture observer of cumulative mass formed into stars (TEST BUILDS ONLY)
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]  # A row the rate fixture has not reached holds none
+    reservoir: {kind: observer}
