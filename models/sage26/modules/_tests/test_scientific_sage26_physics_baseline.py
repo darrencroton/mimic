@@ -34,9 +34,10 @@ Test cases:
   - test_sage26_physics_baseline: a fresh run of the input matches the committed baseline at
     every output snapshot, and the baseline covers the default pipeline's physics; the output
     field names are the baseline's followed by the test fixtures' output fields (the tier runs a
-    test build, which appends them; see fixture_output_field_names in tests/framework/harness.py)
+    test build, which appends them; see check_output_names in tests/framework/harness.py)
   - test_output_names_reject_doctored_production_fields: that name check fails when a
-    production field is added, removed or renamed, shown on doctored name lists
+    production field is added, removed, renamed or moved, or the fixture fields are missing
+    (a production binary), shown on doctored name lists
   - test_physics_output_finite_and_in_range: the same fresh run (it is not repeated) holds no
     NaN or Inf and no value outside its declared range, in any output property at any output
     snapshot; properties with no declared range are skipped with a printed notice. A violation
@@ -95,7 +96,10 @@ from framework import (  # noqa: E402  (path set up above)
     run_mimic_fresh,
     run_test_suite,
 )
-from framework.harness import fixture_output_field_names  # noqa: E402
+from framework.harness import (  # noqa: E402
+    check_output_names,
+    check_output_names_reject_doctoring,
+)
 
 # The package pair the committed baseline belongs to
 BASELINE_MODEL = "sage26"
@@ -175,44 +179,6 @@ def _fresh_outputs():
         run_mimic_fresh(INPUT, CURRENT_DIR / OUTPUT_FILES[63])
         _fresh_run_done = True
     return {snapshot: CURRENT_DIR / name for snapshot, name in OUTPUT_FILES.items()}
-
-
-def _check_output_names(names_now, names_ref, fixture_names, snapshot):
-    """Assert one snapshot's output names are the baseline's followed by the fixture outputs.
-
-    A test build appends the test fixtures' output fields after every production
-    field, so any other difference (a production field added, removed, renamed or
-    moved) is a schema change the baseline does not cover.
-    """
-    expected = tuple(names_ref) + tuple(fixture_names)
-    assert tuple(names_now) == expected, (
-        f"{RED}snapshot {snapshot}: output property names differ from the baseline's followed "
-        f"by the test fixtures' output fields {list(fixture_names)}.\n"
-        f"{_name_difference(names_now, expected)}{NC}"
-    )
-
-
-def _name_difference(names_now, expected):
-    """Describe how two name lists differ: the set differences, or the first differing position.
-
-    When both lists hold the same names, the set differences are empty, so the
-    first position where the order differs is named instead.
-    """
-    only_now = sorted(set(names_now) - set(expected))
-    only_expected = sorted(set(expected) - set(names_now))
-    if only_now or only_expected:
-        return f"Only in current: {only_now}\nOnly in expected: {only_expected}"
-    names_now, expected = tuple(names_now), tuple(expected)
-    index = next(
-        (i for i, (now, want) in enumerate(zip(names_now, expected, strict=False)) if now != want),
-        min(len(names_now), len(expected)),
-    )
-    current = names_now[index] if index < len(names_now) else "<end of list>"
-    wanted = expected[index] if index < len(expected) else "<end of list>"
-    return (
-        f"Same names in a different order: first difference at position {index}, "
-        f"current {current!r}, expected {wanted!r}"
-    )
 
 
 def _typed(node):
@@ -298,8 +264,8 @@ def test_sage26_physics_baseline():
             f"{RED}snapshot {snapshot}: row count mismatch, current={meta_now['TotHalos']}, "
             f"baseline={meta_ref['TotHalos']}{NC}"
         )
-        _check_output_names(
-            halos_now.dtype.names, halos_ref.dtype.names, fixture_output_field_names(), snapshot
+        check_output_names(
+            halos_now.dtype.names, halos_ref.dtype.names, where=f"snapshot {snapshot}: "
         )
 
         passed, report = compare_halos_comprehensive(
@@ -328,44 +294,8 @@ def test_output_names_reject_doctored_production_fields():
     baseline = BASELINE_DIR / OUTPUT_FILES[63]
     assert baseline.exists(), f"Committed baseline not found: {baseline}"
     names_ref = tuple(load_binary_halos(baseline)[0].dtype.names)
-    fixture = fixture_output_field_names()
-    assert len(names_ref) >= 2 and fixture, "need production and fixture names to doctor"
-
-    _check_output_names(names_ref + fixture, names_ref, fixture, 63)
-
-    middle = len(names_ref) // 2
-    renamed = names_ref[:middle] + (names_ref[middle] + "Renamed",) + names_ref[middle + 1 :]
-    swapped = (
-        names_ref[: middle - 1]
-        + (names_ref[middle], names_ref[middle - 1])
-        + names_ref[middle + 1 :]
-    )
-    position = (
-        f"first difference at position {middle - 1}, current {names_ref[middle]!r}, "
-        f"expected {names_ref[middle - 1]!r}"
-    )
-    # (label, doctored current names, a fragment the failure message must hold)
-    doctored = [
-        ("production field added", names_ref + ("DoctoredField",) + fixture, "DoctoredField"),
-        (
-            "production field removed",
-            names_ref[:middle] + names_ref[middle + 1 :] + fixture,
-            repr(names_ref[middle]),
-        ),
-        ("production field renamed", renamed + fixture, names_ref[middle] + "Renamed"),
-        ("production fields reordered", swapped + fixture, position),
-        # The message's first line already lists the fixture names, so check the
-        # difference part, which lists the missing names sorted.
-        ("fixture fields missing", names_ref, f"Only in expected: {sorted(fixture)}"),
-    ]
-    for label, names_now, fragment in doctored:
-        try:
-            _check_output_names(names_now, names_ref, fixture, 63)
-        except AssertionError as exc:
-            assert fragment in str(exc), f"{label}: failure does not name {fragment}: {exc}"
-            continue
-        raise AssertionError(f"{label}: the name check accepted a doctored name list")
-    print(f"  {len(doctored)} doctored name lists rejected; the true list accepted")
+    count = check_output_names_reject_doctoring(names_ref)
+    print(f"  {count} doctored name lists rejected; the true list accepted")
 
 
 def test_physics_output_finite_and_in_range():

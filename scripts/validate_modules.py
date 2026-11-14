@@ -53,7 +53,7 @@ from discovery import (
     standalone_module_files,
     test_property_files,
 )
-from generate_properties import load_parameter_units
+from generate_properties import load_galaxy_property_metadata, load_parameter_units
 from module_modes import (
     STANDALONE_FALLBACK_MODES,
     mode_list_errors,
@@ -729,23 +729,6 @@ def validate_parameter_units(valid_modules, results: ValidationResults) -> None:
             )
 
 
-def galaxy_property_view(
-    property_metadata: Dict[str, Dict[str, Any]],
-) -> Dict[str, Dict[str, Any]]:
-    """Return the galaxy properties of load_property_metadata()'s result.
-
-    The rate rules read galaxy properties only, the view the registry generator
-    passes them (its load_galaxy_property_metadata()), so a transfer end naming a
-    halo or core property gets the same refusal from both tools.
-    """
-    galaxy_sources = {rel(path) for path in model_property_files() + test_property_files()}
-    return {
-        name: prop
-        for name, prop in property_metadata.items()
-        if prop.get("source") in galaxy_sources
-    }
-
-
 def validate_rate_declarations(
     modules: List[Tuple[Path, Dict[str, Any]]],
     property_metadata: Dict[str, Dict[str, Any]],
@@ -763,7 +746,7 @@ def validate_rate_declarations(
 
     Args:
         modules: (module directory, metadata) pairs, every discovered module.
-        property_metadata: Galaxy property metadata by name (galaxy_property_view()).
+        property_metadata: Galaxy property metadata by name (load_galaxy_property_metadata()).
         results: Collector the refusals are added to.
         report_only: When given, only refusals against these module names are
             reported (validating one module path with every module as context).
@@ -979,7 +962,7 @@ def main():
         validate_parameter_units(valid_modules, results)
         print("Validating rate declarations...")
         validate_rate_declarations(
-            rate_context, galaxy_property_view(property_metadata), results, rate_report_only
+            rate_context, load_galaxy_property_metadata(), results, rate_report_only
         )
 
     # Print summary

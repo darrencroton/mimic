@@ -40,9 +40,10 @@ module:
   # Dependencies
   # ===========================================================================
 
-  # The reservoirs and tracers a merge moves.
+  # The row type the module reads and retires, and the reservoirs and tracers a merge moves.
   dependencies:
     properties:
+      - Type
       - RateFixtureHot
       - RateFixtureCold
       - RateFixtureStars

@@ -3,7 +3,8 @@
 Rate provenance: RunProperties/RateTransfers, RunProperties/RateIntegration and the step statistics.
 
 Validates, on the selected package's committed fixture in a test build, with the four rate
-fixtures in one rate phase:
+fixtures in one rate phase (their modules and parameters read from the rate battery's run file,
+tests/framework/rate_fixture.py):
   - test_records_exist_only_with_a_rate_phase: with a rate phase, RunProperties/RateTransfers is
     in the master file and in every partition file and RunProperties/RateIntegration in the
     master file only; with no rate phase neither is written anywhere
@@ -44,28 +45,12 @@ from framework import (  # noqa: E402
     run_mimic,
     run_test_suite,
 )
+from framework.rate_fixture import load_rate_fixture  # noqa: E402
 
 MODULE_SYSTEM = REPO_ROOT / "src" / "module_system"
-RATE_FIXTURES = (
-    "test_rate_supply",
-    "test_rate_formation",
-    "test_rate_feedback",
-    "test_rate_stripping",
-)
-
-# The fixture laws' parameters (each fixture's README), as tests/integration/test_rate_phase.py
-# sets them.
-RATE_PARAMS = {
-    "TestRateSupplyInfallRate": 0.5,
-    "TestRateSupplyTracerFraction": 0.1,
-    "TestRateSupplyCoolingRate": 5.0,
-    "TestRateFormationEfficiency": 5.0,
-    "TestRateFormationThreshold": 1.0e-7,
-    "TestRateFeedbackReheatRate": 1.0,
-    "TestRateFeedbackYield": 0.02,
-    "TestRateStrippingRate": 3.0,
-    "TestRateStrippingEjectionRate": 0.5,
-}
+# The four fixtures and their law parameters (each fixture's README) come from the run file the
+# rate battery uses, simulations/mini-millennium-horizontal/_tests/input/forest_blocks_rate.yaml.
+RATE_FIXTURES, RATE_PARAMS = load_rate_fixture()
 
 # A section with every numeric key away from its default, so a recorded default cannot pass.
 EXPLICIT_SECTION = {

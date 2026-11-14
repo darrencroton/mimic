@@ -15,6 +15,7 @@
  */
 
 #include <errno.h>
+#include <float.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <math.h>
@@ -27,6 +28,7 @@
 
 #include "error.h"
 #include "fof_workspace.h"
+#include "git_version.h"
 #include "globals.h"
 #include "memory.h"
 #include "rate_assembly.h"
@@ -40,6 +42,7 @@
 /** One configured transfer, in global transfer order. */
 struct PlanTransfer {
   const struct Module *module;
+  int module_index; /* plan index of the module */
   const struct RateTransfer *transfer;
   int master; /* plan index of a slaved source's master, else -1 */
 };
@@ -67,11 +70,11 @@ struct RateAssemblyPlan {
   int entries_per_row;
   int *entry_slot;    /* [MIMIC_RESERVOIR_COUNT]: row slot of a reservoir or tracer, else -1 */
   int *slot_property; /* [entries_per_row]: reservoir table index of each row slot */
-  int *slot_observer; /* [entries_per_row]: plan observer of each row slot, else -1 */
 
+  /* A transfer goes to the central or a module reads it: the FoF group is one component and
+   * its central must be an active row */
   bool whole_group;
-  bool needs_central; /* a transfer goes to the central or a module reads it */
-  bool check_purity;  /* run the purity probe at the first evaluation of every segment */
+  bool check_purity; /* run the purity probe at the first evaluation of every segment */
   int max_coefficients;
   struct RateIntegratorSettings settings;
 };
@@ -80,6 +83,7 @@ struct RateAssemblyPlan {
  * Names for diagnostics
  * ------------------------------------------------------------------------- */
 
+/** @brief A transfer kind as module_info.yaml spells it, for diagnostics and the output */
 static const char *transfer_kind_name(enum RateTransferKind kind) {
   switch (kind) {
   case RATE_TRANSFER_INTERNAL:
@@ -89,9 +93,9 @@ static const char *transfer_kind_name(enum RateTransferKind kind) {
   case RATE_TRANSFER_SOURCE:
     return "source";
   case RATE_TRANSFER_SLAVED_SOURCE:
-    return "slaved source";
+    return "slaved_source";
   }
-  return "unknown kind";
+  return "unknown";
 }
 
 static const char *reservoir_kind_name(enum ReservoirKind kind) {
@@ -245,11 +249,18 @@ static int check_settings(const char *phase_name, const struct MimicRateIntegrat
               in->check_purity);
     return -1;
   }
-  if (in->max_steps_per_segment < 1 || in->max_rejections_per_step < 1) {
+  if (in->max_steps_per_segment < 1) {
     refuse_header(phase_name);
-    ERROR_LOG("  modules.rate_integration budgets (max_steps_per_segment %" PRId64
-              ", max_rejections_per_step %d) must be at least 1",
-              in->max_steps_per_segment, in->max_rejections_per_step);
+    ERROR_LOG("  modules.rate_integration.max_steps_per_segment has value %" PRId64
+              "; it must be at least 1",
+              in->max_steps_per_segment);
+    return -1;
+  }
+  if (in->max_rejections_per_step < RATE_MIN_REJECTIONS_PER_STEP) {
+    refuse_header(phase_name);
+    ERROR_LOG("  modules.rate_integration.max_rejections_per_step has value %d; it must be at "
+              "least %d. " RATE_MIN_REJECTIONS_PER_STEP_REASON,
+              in->max_rejections_per_step, RATE_MIN_REJECTIONS_PER_STEP);
     return -1;
   }
   out->scheme = (enum RateScheme)in->scheme;
@@ -266,18 +277,14 @@ static int compare_plan_transfers(const void *a, const void *b) {
   return (ga > gb) - (ga < gb);
 }
 
-/** Context of compare_plan_observers(); qsort has no user argument */
-static const struct PlanTransfer *observer_sort_transfers = NULL;
-
+/** By property, then by plan transfer index, which is global transfer order */
 static int compare_plan_observers(const void *a, const void *b) {
   const struct PlanObserver *oa = a;
   const struct PlanObserver *ob = b;
   if (oa->property != ob->property) {
     return (oa->property > ob->property) - (oa->property < ob->property);
   }
-  const int ga = observer_sort_transfers[oa->transfer].transfer->global_index;
-  const int gb = observer_sort_transfers[ob->transfer].transfer->global_index;
-  return (ga > gb) - (ga < gb);
+  return (oa->transfer > ob->transfer) - (oa->transfer < ob->transfer);
 }
 
 /** @brief Round @p bytes up to the carve alignment */
@@ -285,11 +292,15 @@ static size_t align_up(size_t bytes) {
   return (bytes + CARVE_ALIGN - 1) / CARVE_ALIGN * CARVE_ALIGN;
 }
 
-/** @brief Reserve @p count elements of @p size at the aligned @p *offset; returns their offset */
-static size_t carve(size_t *offset, size_t count, size_t size) {
+/**
+ * @brief   Reserve @p count elements of @p size at the aligned @p *offset
+ *
+ * @return  Their address within @p base, or NULL when @p base is NULL (measuring only)
+ */
+static void *carve(char *base, size_t *offset, size_t count, size_t size) {
   const size_t at = align_up(*offset);
   *offset = at + count * size;
-  return at;
+  return base != NULL ? base + at : NULL;
 }
 
 /** @brief Check each transfer's ends and coefficient slot; fills plan->transfers unsorted */
@@ -319,7 +330,8 @@ static int collect_transfers(struct RateAssemblyPlan *plan) {
                   "regenerate with 'make generate'");
         return -1;
       }
-      plan->transfers[t++] = (struct PlanTransfer){.module = mod, .transfer = tr, .master = -1};
+      plan->transfers[t++] =
+          (struct PlanTransfer){.module = mod, .module_index = m, .transfer = tr, .master = -1};
     }
     if (mod->num_rate_transfers > plan->max_coefficients) {
       plan->max_coefficients = mod->num_rate_transfers;
@@ -344,12 +356,7 @@ static int order_transfers(struct RateAssemblyPlan *plan) {
                 pt->transfer->global_index);
       return -1;
     }
-    for (int m = 0; m < plan->num_modules; m++) {
-      if (plan->modules[m] == pt->module) {
-        plan->slot_transfer[plan->slot_base[m] + pt->transfer->coefficient_index] = t;
-        break;
-      }
-    }
+    plan->slot_transfer[plan->slot_base[pt->module_index] + pt->transfer->coefficient_index] = t;
   }
   return 0;
 }
@@ -412,10 +419,23 @@ static int collect_observers(struct RateAssemblyPlan *plan) {
     }
   }
   if (plan->num_observers > 1) {
-    observer_sort_transfers = plan->transfers;
     qsort(plan->observers, (size_t)plan->num_observers, sizeof(struct PlanObserver),
           compare_plan_observers);
-    observer_sort_transfers = NULL;
+  }
+  /* A repeated (property, transfer) pair would add the moved amount twice; once sorted, the
+   * repeats are adjacent. An observed transfer belongs to the observer's module. */
+  for (int k = 1; k < plan->num_observers; k++) {
+    const struct PlanObserver *prev = &plan->observers[k - 1];
+    const struct PlanObserver *ob = &plan->observers[k];
+    if (prev->property == ob->property && prev->transfer == ob->transfer) {
+      const struct PlanTransfer *pt = &plan->transfers[ob->transfer];
+      refuse_header(plan->phase_name);
+      ERROR_LOG("  Module '%s' declares the observer '%s' of transfer '%s' more than once; the "
+                "property would receive the transfer's amount once per declaration",
+                pt->module->name, table_entry(ob->property)->name, pt->transfer->name);
+      ERROR_LOG("  The module's generated metadata is stale: regenerate with 'make generate'");
+      return -1;
+    }
   }
   return 0;
 }
@@ -477,7 +497,12 @@ static int check_total_cycle(const struct RateAssemblyPlan *plan) {
   return result;
 }
 
-/** @brief Lay out one row's entries: reservoirs and tracers, and observers, in table order */
+/**
+ * @brief Lay out one row's entries: its reservoirs and tracers, in table order
+ *
+ * An observer is not integrator state: it takes no entry, and write-back adds
+ * its transfer's amount to it (integrate_component()).
+ */
 static void lay_out_row(struct RateAssemblyPlan *plan) {
   const int count = MIMIC_RESERVOIR_COUNT;
   int p = 0;
@@ -486,19 +511,27 @@ static void lay_out_row(struct RateAssemblyPlan *plan) {
     if (table_entry(e)->kind != RESERVOIR_KIND_OBSERVER) {
       plan->entry_slot[e] = p;
       plan->slot_property[p] = e;
-      plan->slot_observer[p] = -1;
       p++;
-      continue;
-    }
-    for (int o = 0; o < plan->num_observers; o++) {
-      if (plan->observers[o].property == e) {
-        plan->slot_property[p] = e;
-        plan->slot_observer[p] = o;
-        p++;
-      }
     }
   }
   plan->entries_per_row = p;
+}
+
+/** @brief Carve the plan (first, so @p base is the plan) and its arrays; NULL base: measure */
+static size_t carve_plan(char *base, int num_modules, int num_transfers, int num_observers) {
+  const size_t num_reservoirs = (size_t)MIMIC_RESERVOIR_COUNT;
+  struct RateAssemblyPlan measured;
+  size_t offset = 0;
+  struct RateAssemblyPlan *plan = carve(base, &offset, 1, sizeof(struct RateAssemblyPlan));
+  plan = plan != NULL ? plan : &measured;
+  plan->modules = carve(base, &offset, (size_t)num_modules, sizeof(const struct Module *));
+  plan->slot_base = carve(base, &offset, (size_t)num_modules, sizeof(int));
+  plan->slot_transfer = carve(base, &offset, (size_t)num_transfers, sizeof(int));
+  plan->transfers = carve(base, &offset, (size_t)num_transfers, sizeof(struct PlanTransfer));
+  plan->observers = carve(base, &offset, (size_t)num_observers, sizeof(struct PlanObserver));
+  plan->entry_slot = carve(base, &offset, num_reservoirs, sizeof(int));
+  plan->slot_property = carve(base, &offset, num_reservoirs, sizeof(int));
+  return offset;
 }
 
 static void insert_module_by_name(const struct Module **modules, int count,
@@ -530,32 +563,12 @@ int rate_assembly_plan_build(const char *phase_name, const struct PhaseModuleCon
     num_transfers += entries[i].resolved->num_rate_transfers;
     num_observers += entries[i].resolved->num_rate_observers;
   }
-  const int num_reservoirs = MIMIC_RESERVOIR_COUNT;
-  const int max_slots = num_reservoirs + num_observers;
-
-  size_t bytes = 0;
-  const size_t at_plan = carve(&bytes, 1, sizeof(struct RateAssemblyPlan));
-  const size_t at_modules = carve(&bytes, (size_t)num_entries, sizeof(const struct Module *));
-  const size_t at_slot_base = carve(&bytes, (size_t)num_entries, sizeof(int));
-  const size_t at_slot_transfer = carve(&bytes, (size_t)num_transfers, sizeof(int));
-  const size_t at_transfers = carve(&bytes, (size_t)num_transfers, sizeof(struct PlanTransfer));
-  const size_t at_observers = carve(&bytes, (size_t)num_observers, sizeof(struct PlanObserver));
-  const size_t at_entry_slot = carve(&bytes, (size_t)num_reservoirs, sizeof(int));
-  const size_t at_slot_property = carve(&bytes, (size_t)max_slots, sizeof(int));
-  const size_t at_slot_observer = carve(&bytes, (size_t)max_slots, sizeof(int));
-
+  const size_t bytes = carve_plan(NULL, num_entries, num_transfers, num_observers);
   char *base = mymalloc_cat(bytes, MEM_UTILITY);
   memset(base, 0, bytes);
-  struct RateAssemblyPlan *plan = (struct RateAssemblyPlan *)(void *)(base + at_plan);
+  carve_plan(base, num_entries, num_transfers, num_observers);
+  struct RateAssemblyPlan *plan = (struct RateAssemblyPlan *)(void *)base;
   plan->phase_name = phase_name;
-  plan->modules = (const struct Module **)(void *)(base + at_modules);
-  plan->slot_base = (int *)(void *)(base + at_slot_base);
-  plan->slot_transfer = (int *)(void *)(base + at_slot_transfer);
-  plan->transfers = (struct PlanTransfer *)(void *)(base + at_transfers);
-  plan->observers = (struct PlanObserver *)(void *)(base + at_observers);
-  plan->entry_slot = (int *)(void *)(base + at_entry_slot);
-  plan->slot_property = (int *)(void *)(base + at_slot_property);
-  plan->slot_observer = (int *)(void *)(base + at_slot_observer);
   plan->num_transfers = num_transfers;
   plan->num_observers = num_observers;
   plan->settings = checked;
@@ -580,14 +593,13 @@ int rate_assembly_plan_build(const char *phase_name, const struct PhaseModuleCon
   for (int m = 0; m < plan->num_modules; m++) {
     reads_central |= plan->modules[m]->reads_central;
   }
-  plan->needs_central = to_central || reads_central;
-  plan->whole_group = plan->needs_central;
+  plan->whole_group = to_central || reads_central;
 
   VERBOSE_LOG("Rate phase '%s': %d module(s), %d transfer(s), %d observer(s); %s; %s scheme",
               phase_name, plan->num_modules, plan->num_transfers, plan->num_observers,
               plan->whole_group ? "each FoF group is one component"
                                 : "each galaxy is its own component",
-              plan->settings.scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit");
+              rate_assembly_scheme_name(plan->settings.scheme));
   *plan_out = plan;
   return 0;
 }
@@ -667,64 +679,48 @@ struct Segment {
   struct RateEntry *entries;         /* [num_rows * P] */
   double *state;                     /* [num_rows * P] */
   struct RateFlux *fluxes;           /* [num_rows * T] */
+  double *flux_amounts;              /* [num_rows * T] each flux's committed segment amount */
   double *coefficients;              /* [max_coefficients] one law's slots */
-  double *last_coefficients;         /* [num_rows * T] the latest law evaluation's coefficients */
   struct Halo *probe_halos;          /* [num_rows] purity probe: the scratch rows before any law */
   struct GalaxyData *probe_galaxies; /* [num_rows] purity probe: the scratch galaxies likewise */
   void *integrator;                  /* the integrator's workspace */
   size_t integrator_bytes;
 };
 
-/** Byte offsets of a segment's tables within the scratch allocation. */
-struct SegmentLayout {
-  size_t rows, dT, delta, halos, galaxies, entries, state, fluxes, coefficients;
-  size_t last_coefficients, probe_halos, probe_galaxies, integrator;
-  size_t total;
-};
-
-static void lay_out_segment(const struct RateAssemblyPlan *plan, int num_rows,
-                            size_t integrator_bytes, struct SegmentLayout *l) {
+/**
+ * @brief   Carve a segment's tables and the integrator's share from @p base, or only measure
+ *          them when @p base is NULL
+ *
+ * The tables come first and their offsets do not depend on @p integrator_bytes,
+ * so growing the integrator's share keeps them in place.
+ *
+ * @return  The bytes the segment needs
+ */
+static size_t carve_segment(const struct RateAssemblyPlan *plan, int num_rows,
+                            size_t integrator_bytes, char *base, struct Segment *seg) {
   const size_t r = (size_t)num_rows;
   const size_t entries = r * (size_t)plan->entries_per_row;
   const size_t fluxes = r * (size_t)plan->num_transfers;
-  size_t offset = 0;
-  l->rows = carve(&offset, r, sizeof(int));
-  l->dT = carve(&offset, r, sizeof(double));
-  l->delta = carve(&offset, r, sizeof(double));
-  l->halos = carve(&offset, r, sizeof(struct Halo));
-  l->galaxies = carve(&offset, r, sizeof(struct GalaxyData));
-  l->entries = carve(&offset, entries, sizeof(struct RateEntry));
-  l->state = carve(&offset, entries, sizeof(double));
-  l->fluxes = carve(&offset, fluxes, sizeof(struct RateFlux));
-  l->coefficients = carve(&offset, (size_t)plan->max_coefficients, sizeof(double));
-  l->last_coefficients = carve(&offset, fluxes, sizeof(double));
   const size_t probed = plan->check_purity ? r : 0; /* the probe's snapshots exist only when on */
-  l->probe_halos = carve(&offset, probed, sizeof(struct Halo));
-  l->probe_galaxies = carve(&offset, probed, sizeof(struct GalaxyData));
-  l->integrator = carve(&offset, integrator_bytes, 1);
-  l->total = align_up(offset);
-}
-
-static void bind_segment(const struct SegmentLayout *l, void *bytes, size_t integrator_bytes,
-                         struct Segment *seg) {
-  char *base = bytes;
-  seg->rows = (int *)(void *)(base + l->rows);
-  seg->dT = (double *)(void *)(base + l->dT);
-  seg->delta = (double *)(void *)(base + l->delta);
-  seg->halos = (struct Halo *)(void *)(base + l->halos);
-  seg->galaxies = (struct GalaxyData *)(void *)(base + l->galaxies);
-  seg->entries = (struct RateEntry *)(void *)(base + l->entries);
-  seg->state = (double *)(void *)(base + l->state);
-  seg->fluxes = (struct RateFlux *)(void *)(base + l->fluxes);
-  seg->coefficients = (double *)(void *)(base + l->coefficients);
-  seg->last_coefficients = (double *)(void *)(base + l->last_coefficients);
-  seg->probe_halos = (struct Halo *)(void *)(base + l->probe_halos);
-  seg->probe_galaxies = (struct GalaxyData *)(void *)(base + l->probe_galaxies);
-  seg->integrator = base + l->integrator;
+  size_t offset = 0;
+  seg->rows = carve(base, &offset, r, sizeof(int));
+  seg->dT = carve(base, &offset, r, sizeof(double));
+  seg->delta = carve(base, &offset, r, sizeof(double));
+  seg->halos = carve(base, &offset, r, sizeof(struct Halo));
+  seg->galaxies = carve(base, &offset, r, sizeof(struct GalaxyData));
+  seg->entries = carve(base, &offset, entries, sizeof(struct RateEntry));
+  seg->state = carve(base, &offset, entries, sizeof(double));
+  seg->fluxes = carve(base, &offset, fluxes, sizeof(struct RateFlux));
+  seg->flux_amounts = carve(base, &offset, fluxes, sizeof(double));
+  seg->coefficients = carve(base, &offset, (size_t)plan->max_coefficients, sizeof(double));
+  seg->probe_halos = carve(base, &offset, probed, sizeof(struct Halo));
+  seg->probe_galaxies = carve(base, &offset, probed, sizeof(struct GalaxyData));
+  seg->integrator = carve(base, &offset, integrator_bytes, 1);
   seg->integrator_bytes = integrator_bytes;
+  return align_up(offset);
 }
 
-/** @brief Grow the scratch to at least @p bytes (contents kept, so the caller rebinds) */
+/** @brief Grow the scratch to at least @p bytes (contents kept, so the caller carves again) */
 static void reserve_scratch(struct RateAssemblyScratch *scratch, size_t bytes) {
   if (bytes <= scratch->capacity) {
     return;
@@ -778,28 +774,18 @@ static void row_clock(const struct RateAssemblyPlan *plan, const struct ModuleCo
   *delta = dt / (double)ctx->num_substeps;
 }
 
-/** @brief Fill the component's entries; observers in their slots, linked to their row's flux */
+/** @brief Fill the component's entries: each row's reservoirs and tracers */
 static void build_entries(const struct RateAssemblyPlan *plan, struct Segment *seg) {
   const int P = plan->entries_per_row;
-  const int T = plan->num_transfers;
   for (int r = 0; r < seg->num_rows; r++) {
     for (int p = 0; p < P; p++) {
       const struct ReservoirEntry *entry = table_entry(plan->slot_property[p]);
       struct RateEntry *out = &seg->entries[r * P + p];
       out->row = r;
-      out->parent = -1;
-      out->flux = -1;
-      if (entry->kind == RESERVOIR_KIND_OBSERVER) {
-        out->kind = RATE_ENTRY_OBSERVER;
-        out->total = 0; /* not read */
-        out->flux = r * T + plan->observers[plan->slot_observer[p]].transfer;
-      } else {
-        out->kind = entry->kind == RESERVOIR_KIND_TRACER ? RATE_ENTRY_TRACER : RATE_ENTRY_RESERVOIR;
-        out->total = entry->total;
-        if (entry->kind == RESERVOIR_KIND_TRACER) {
-          out->parent = r * P + plan->entry_slot[entry->parent];
-        }
-      }
+      out->total = entry->total;
+      out->kind = entry->kind == RESERVOIR_KIND_TRACER ? RATE_ENTRY_TRACER : RATE_ENTRY_RESERVOIR;
+      out->parent =
+          (entry->kind == RESERVOIR_KIND_TRACER) ? r * P + plan->entry_slot[entry->parent] : -1;
     }
   }
 }
@@ -847,55 +833,61 @@ static double *galaxy_field(struct GalaxyData *galaxy, int e) {
   return (double *)(void *)((char *)galaxy + table_entry(e)->offset);
 }
 
-/** @brief Value of the double member at reservoir table index @p e of @p galaxy */
-static double galaxy_value(const struct GalaxyData *galaxy, int e) {
-  return *(const double *)(const void *)((const char *)galaxy + table_entry(e)->offset);
-}
-
-/** @brief Whether row slot @p p is the first observer slot of its property */
-static bool first_observer_slot(const struct RateAssemblyPlan *plan, int p) {
-  return p == 0 || plan->slot_property[p - 1] != plan->slot_property[p];
-}
-
 /**
- * @brief   Write a trial state's reservoir and tracer values into one row's scratch galaxy
+ * @brief   Write a state's reservoir and tracer values into one row's galaxy
  *
- * Observer fields are left at their segment-start values: observers are out of
- * error control, so a law must not see them move within a segment.
+ * Used for a trial state in a scratch galaxy and for the end state at
+ * write-back. Observer fields are not entries, so a law sees them at their
+ * segment-start values.
  */
-static void load_trial_row(const struct RateAssemblyPlan *plan, const double *row_state,
-                           struct GalaxyData *galaxy) {
-  const int P = plan->entries_per_row;
-  for (int p = 0; p < P; p++) {
-    if (plan->slot_observer[p] < 0) {
-      *galaxy_field(galaxy, plan->slot_property[p]) = row_state[p];
-    }
-  }
-}
-
-/** @brief Write an end state's reservoir, tracer and observer values into one row's galaxy */
 static void store_row(const struct RateAssemblyPlan *plan, const double *row_state,
                       struct GalaxyData *galaxy) {
   const int P = plan->entries_per_row;
   for (int p = 0; p < P; p++) {
-    double *field = galaxy_field(galaxy, plan->slot_property[p]);
-    if (plan->slot_observer[p] < 0) {
-      *field = row_state[p];
-    } else if (first_observer_slot(plan, p)) {
-      *field = row_state[p]; /* the first observer entry started at the property's value */
-    } else {
-      *field += row_state[p];
-    }
+    *galaxy_field(galaxy, plan->slot_property[p]) = row_state[p];
   }
 }
 
-/** @brief Read one row's start state from its galaxy (observers: the first entry carries it) */
-static void load_row(const struct RateAssemblyPlan *plan, const struct GalaxyData *galaxy,
-                     double *row_state) {
+/**
+ * @brief   Read workspace row @p w's start state, its reservoirs and tracers, from its galaxy
+ *
+ * Fatal on an entry that is not finite or is negative: no law and no step may
+ * see one, and only what ran before the segment (a discrete phase, or
+ * initialisation) can have left it, so the message points there.
+ */
+static void load_row(const struct RateAssemblyPlan *plan, const struct ModuleContext *ctx,
+                     const struct FoFWorkspace *ws, int w, double *row_state) {
+  const struct Halo *h = &ws->halos[w];
   const int P = plan->entries_per_row;
   for (int p = 0; p < P; p++) {
-    const double value = galaxy_value(galaxy, plan->slot_property[p]);
-    row_state[p] = (plan->slot_observer[p] < 0 || first_observer_slot(plan, p)) ? value : 0.0;
+    const double value = *galaxy_field(h->galaxy, plan->slot_property[p]);
+    if (!(value >= 0.0 && value <= DBL_MAX)) { /* fails for a negative, infinite or NaN value */
+      const char *property = table_entry(plan->slot_property[p])->name;
+      FATAL_ERROR("Rate phase '%s' at snapshot %d, substep %d of %d: workspace row %d "
+                  "(UniqueGalaxyID %lld, Type %d) enters the rate segment with %s = %.17g; a "
+                  "reservoir or tracer must be finite and not negative when a segment starts. "
+                  "The value was left before the segment, by a discrete phase or by "
+                  "initialisation: check the module that last wrote '%s'",
+                  plan->phase_name, ctx->snapshot_number, ctx->substep_number + 1,
+                  ctx->num_substeps, w, h->UniqueGalaxyID, h->Type, property, value, property);
+    }
+    row_state[p] = value;
+  }
+}
+
+/**
+ * @brief   Add each configured observer's transfer amount on row @p r to its property
+ *
+ * Observers are taken in plan order, by property and then by the observed
+ * transfer's global index, so several observers of one property add in global
+ * transfer order.
+ */
+static void add_observed_amounts(const struct RateAssemblyPlan *plan, const double *flux_amounts,
+                                 int r, struct GalaxyData *galaxy) {
+  const int T = plan->num_transfers;
+  for (int o = 0; o < plan->num_observers; o++) {
+    const struct PlanObserver *ob = &plan->observers[o];
+    *galaxy_field(galaxy, ob->property) += flux_amounts[r * T + ob->transfer];
   }
 }
 
@@ -908,6 +900,9 @@ struct LawAdapter {
   RateLawInvoker invoke;
   int64_t evaluations; /* law evaluations begun in this segment */
   double last_tau;     /* tau of the latest evaluation */
+  /* The latest evaluation's coefficients as the integrator handed them, valid and unchanged
+   * until its next evaluation begins (struct RateLaw): the failure file reads them here. */
+  const double *coefficients;
   /* Laws of the latest evaluation that returned, counted in canonical call order (row by row,
    * modules by name within a row): the coefficients of transfer slots of later calls were
    * never evaluated, whatever the buffer holds. */
@@ -951,16 +946,6 @@ struct FailureSummary {
   double step; /* the step being attempted, or 0 */
 };
 
-/** @brief Plan module index of @p mod (it is one of the plan's modules) */
-static int plan_module_index(const struct RateAssemblyPlan *plan, const struct Module *mod) {
-  for (int m = 0; m < plan->num_modules; m++) {
-    if (plan->modules[m] == mod) {
-      return m;
-    }
-  }
-  return -1;
-}
-
 /** @brief Print @p value as a hexadecimal float, with its bit pattern when it is not finite */
 static void print_hex(FILE *file, double value) {
   fprintf(file, "%a", value);
@@ -974,15 +959,15 @@ static void print_hex(FILE *file, double value) {
 /**
  * @brief   Write the component's failure file, <output_directory>/rate_failure_task<N>.txt
  *
- * N is the MPI task number (0 in a serial run). The file holds the run's rate
+ * N is the MPI task number (0 in a serial run). The file holds the build's
+ * version and commit, the law's base time and redshift, the run's rate
  * settings, the failure's cause, module, transfer and time, each row's segment
  * length, the component's segment-start state (the integrator leaves it
  * untouched on a failure) and the coefficients of the latest law evaluation, all
  * as hexadecimal floats. A coefficient whose law had not run when the evaluation
  * ended (a law returned non-zero, or the probe stopped it) is marked
- * not_evaluated, and a segment that failed before any law ran says so instead of
- * listing coefficients. Failing to write it logs a warning and never hides the
- * failure itself.
+ * not_evaluated. Failing to write it logs a warning and never hides the failure
+ * itself.
  *
  * @param   path  Receives the file's path when it was written, else an empty string
  * @return  true when the file was written
@@ -1019,11 +1004,13 @@ static bool write_failure_file(const struct LawAdapter *a, const struct FailureS
   fprintf(file,
           "# Floating-point values are hexadecimal floats (C99 %%a), exact; a value that is\n");
   fprintf(file, "# not finite also carries its bit pattern.\n");
+  fprintf(file, "mimic_version: %s\ngit_commit: %s\n", GIT_VERSION, GIT_COMMIT);
   fprintf(file, "task: %d\n", ThisTask);
   fprintf(file, "phase: %s\n", plan->phase_name);
   fprintf(file, "snapshot: %d\n", a->ctx->snapshot_number);
   fprintf(file, "substep: %d of %d\n", a->ctx->substep_number + 1, a->ctx->num_substeps);
-  fprintf(file, "scheme: %s\n", set->scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit");
+  fprintf(file, "base_time: %a\nredshift: %a\n", a->ctx->time, a->ctx->redshift);
+  fprintf(file, "scheme: %s\n", rate_assembly_scheme_name(set->scheme));
   fprintf(file, "relative_tolerance: %a\n", set->relative_tolerance);
   fprintf(file, "absolute_tolerance: %a\n", set->absolute_tolerance);
   fprintf(file, "max_steps_per_segment: %" PRId64 "\n", set->max_steps_per_segment);
@@ -1036,11 +1023,7 @@ static bool write_failure_file(const struct LawAdapter *a, const struct FailureS
   fprintf(file, "tau: %a\n", f->tau);
   fprintf(file, "step: %a\n", f->step);
   fprintf(file, "law_evaluations_begun: %" PRId64 "\n", a->evaluations);
-  if (a->evaluations > 0) {
-    fprintf(file, "failing_evaluation_tau: %a\n", a->last_tau);
-  } else {
-    fprintf(file, "failing_evaluation_tau: none\n");
-  }
+  fprintf(file, "failing_evaluation_tau: %a\n", a->last_tau);
   fprintf(file, "rows: %d\n", seg->num_rows);
   fprintf(file, "entries_per_row: %d\n", P);
   fprintf(file, "transfers_per_row: %d\n", T);
@@ -1064,24 +1047,22 @@ static bool write_failure_file(const struct LawAdapter *a, const struct FailureS
       fprintf(file, "\n");
     }
   }
-  if (a->evaluations == 0) {
-    fprintf(file, "coefficients: no law was evaluated\n");
-  } else {
-    fprintf(file, "# coefficient <row> <module>.<transfer> <value at the failing evaluation, or "
-                  "not_evaluated>\n");
-    const int64_t num_modules = plan->num_modules;
-    for (int r = 0; r < seg->num_rows; r++) {
-      for (int t = 0; t < T; t++) {
-        const int m = plan_module_index(plan, plan->transfers[t].module);
-        fprintf(file, "coefficient %d %s.%s ", r, plan->transfers[t].module->name,
-                plan->transfers[t].transfer->name);
-        if ((int64_t)r * num_modules + m < a->reached_calls) {
-          print_hex(file, seg->last_coefficients[r * T + t]);
-        } else {
-          fprintf(file, "not_evaluated");
-        }
-        fprintf(file, "\n");
+  /* Only calls the latest evaluation reached are read, so with no evaluation (none reaches
+   * the integrator's failure paths in the domain) nothing is read through the pointer. */
+  fprintf(file, "# coefficient <row> <module>.<transfer> <value at the failing evaluation, or "
+                "not_evaluated>\n");
+  const int64_t num_modules = plan->num_modules;
+  for (int r = 0; r < seg->num_rows; r++) {
+    for (int t = 0; t < T; t++) {
+      const int m = plan->transfers[t].module_index;
+      fprintf(file, "coefficient %d %s.%s ", r, plan->transfers[t].module->name,
+              plan->transfers[t].transfer->name);
+      if ((int64_t)r * num_modules + m < a->reached_calls) {
+        print_hex(file, a->coefficients[r * T + t]);
+      } else {
+        fprintf(file, "not_evaluated");
       }
+      fprintf(file, "\n");
     }
   }
 
@@ -1102,13 +1083,10 @@ static bool write_failure_file(const struct LawAdapter *a, const struct FailureS
 static const char *module_transfer_names(const struct Module *mod, char *buffer, size_t size) {
   size_t used = 0;
   buffer[0] = '\0';
-  for (int k = 0; k < mod->num_rate_transfers && used < size; k++) {
-    const int written = snprintf(buffer + used, size - used, "%s%s", k == 0 ? "" : ", ",
-                                 mod->rate_transfers[k].name);
-    if (written < 0) {
+  for (int k = 0; k < mod->num_rate_transfers; k++) {
+    if (!rate_append_list_item(buffer, size, &used, mod->rate_transfers[k].name)) {
       break;
     }
-    used += (size_t)written;
   }
   return buffer;
 }
@@ -1119,25 +1097,20 @@ static const char *module_transfer_names(const struct Module *mod, char *buffer,
  * @param   transfer  The transfer's name, or the module's transfers when the whole law is at fault
  * @param   reason    What differed between the two evaluations
  */
-static void fail_impure(struct LawAdapter *a, double tau, const double *coefficients, int m, int r,
-                        const char *transfer, const char *reason) {
+static void fail_impure(struct LawAdapter *a, double tau, int m, int r, const char *transfer,
+                        const char *reason) {
   const struct RateAssemblyPlan *plan = a->plan;
   const struct Segment *seg = a->seg;
   const char *module = plan->modules[m]->name;
   const int w = seg->rows[r];
   const struct Halo *h = &a->ws->halos[w];
 
-  /* The failing evaluation's coefficients are the first pass's, as far as it got
-   * (a->reached_calls: all of it when the repeat failed). */
-  memcpy(seg->last_coefficients, coefficients,
-         (size_t)seg->num_rows * (size_t)plan->num_transfers * sizeof(double));
-  a->last_tau = tau;
-
+  /* The failure file's coefficients are the first pass's, as far as it got (a->reached_calls:
+   * all of it when the repeat failed); the repeat writes only the module's own slots. */
   ERROR_LOG("Rate law is not pure in phase '%s' at snapshot %d, substep %d of %d (a component of "
             "%d row(s), %s scheme):",
             plan->phase_name, a->ctx->snapshot_number, a->ctx->substep_number + 1,
-            a->ctx->num_substeps, seg->num_rows,
-            plan->settings.scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit");
+            a->ctx->num_substeps, seg->num_rows, rate_assembly_scheme_name(plan->settings.scheme));
   ERROR_LOG("  module '%s', transfer '%s': %s", module, transfer, reason);
   ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d), tau "
             "%.17g",
@@ -1177,8 +1150,7 @@ static bool scratch_unchanged(const struct LawAdapter *a, int r, bool reads_cent
 }
 
 /** @brief After a probed law call: end the run if it changed the scratch state it was given */
-static void check_scratch(struct LawAdapter *a, double tau, const double *coefficients, int r,
-                          int m, const char *pass) {
+static void check_scratch(struct LawAdapter *a, double tau, int r, int m, const char *pass) {
   const struct Module *mod = a->plan->modules[m];
   if (scratch_unchanged(a, r, mod->reads_central)) {
     return;
@@ -1187,7 +1159,7 @@ static void check_scratch(struct LawAdapter *a, double tau, const double *coeffi
   char reason[160];
   snprintf(reason, sizeof(reason), "the law changed the scratch row it was given (%s evaluation)",
            pass);
-  fail_impure(a, tau, coefficients, m, r, module_transfer_names(mod, names, sizeof(names)), reason);
+  fail_impure(a, tau, m, r, module_transfer_names(mod, names, sizeof(names)), reason);
 }
 
 /**
@@ -1198,8 +1170,7 @@ static void check_scratch(struct LawAdapter *a, double tau, const double *coeffi
  * non-zero now, or that changes its scratch row, fails too. The scratch rows
  * are compared with the snapshot taken before any law ran.
  */
-static void repeat_laws_reversed(struct LawAdapter *a, struct RateContext *rctx, double tau,
-                                 const double *coefficients) {
+static void repeat_laws_reversed(struct LawAdapter *a, struct RateContext *rctx, double tau) {
   const struct RateAssemblyPlan *plan = a->plan;
   const struct Segment *seg = a->seg;
   const int T = plan->num_transfers;
@@ -1214,18 +1185,17 @@ static void repeat_laws_reversed(struct LawAdapter *a, struct RateContext *rctx,
       if (rc != 0) {
         snprintf(reason, sizeof(reason),
                  "the law returned %d on its repeat evaluation after returning 0", rc);
-        fail_impure(a, tau, coefficients, m, r, module_transfer_names(mod, names, sizeof(names)),
-                    reason);
+        fail_impure(a, tau, m, r, module_transfer_names(mod, names, sizeof(names)), reason);
       }
-      check_scratch(a, tau, coefficients, r, m, "repeat");
+      check_scratch(a, tau, r, m, "repeat");
       for (int k = 0; k < mod->num_rate_transfers; k++) {
-        const double first = coefficients[r * T + plan->slot_transfer[plan->slot_base[m] + k]];
+        const double first = a->coefficients[r * T + plan->slot_transfer[plan->slot_base[m] + k]];
         if (!same_bits(first, seg->coefficients[k])) {
           snprintf(reason, sizeof(reason),
                    "the coefficient was %a (%.17g) on the first evaluation and %a (%.17g) on the "
                    "repeat in reversed order",
                    first, first, seg->coefficients[k], seg->coefficients[k]);
-          fail_impure(a, tau, coefficients, m, r, mod->rate_transfers[k].name, reason);
+          fail_impure(a, tau, m, r, mod->rate_transfers[k].name, reason);
         }
       }
     }
@@ -1237,15 +1207,21 @@ static void repeat_laws_reversed(struct LawAdapter *a, struct RateContext *rctx,
  * ------------------------------------------------------------------------- */
 
 /**
- * @brief   Load the trial state, then call every law of every row; probe purity when asked
+ * @brief   struct RateLaw.evaluate: load the trial state, then call every law of every row
  *
  * Every row's trial state is loaded before any law runs, so a central view
- * holds the central's trial state whichever row evaluates it. With @p probe the
- * scratch rows are snapshotted first, each law call is checked against the
- * snapshot, and the laws are repeated in reversed order afterwards.
+ * holds the central's trial state whichever row evaluates it. At a segment's
+ * first evaluation with check_purity on, the scratch rows are snapshotted
+ * first, each law call is checked against the snapshot, and the laws are
+ * repeated in reversed order afterwards. The coefficients are kept for a
+ * failure file.
  */
-static int run_laws(struct LawAdapter *a, double tau, const double *state, double *coefficients,
-                    bool probe) {
+static int evaluate_laws(void *data, double tau, const double *state, double *coefficients) {
+  struct LawAdapter *a = data;
+  const bool probe = a->plan->check_purity && a->evaluations == 0;
+  a->evaluations++;
+  a->last_tau = tau;
+  a->coefficients = coefficients;
   const struct RateAssemblyPlan *plan = a->plan;
   const struct ModuleContext *ctx = a->ctx;
   struct Segment *seg = a->seg;
@@ -1254,7 +1230,7 @@ static int run_laws(struct LawAdapter *a, double tau, const double *state, doubl
 
   a->reached_calls = 0;
   for (int r = 0; r < seg->num_rows; r++) {
-    load_trial_row(plan, &state[r * P], &seg->galaxies[r]);
+    store_row(plan, &state[r * P], &seg->galaxies[r]);
   }
   if (probe) {
     memcpy(seg->probe_halos, seg->halos, (size_t)seg->num_rows * sizeof(struct Halo));
@@ -1283,38 +1259,32 @@ static int run_laws(struct LawAdapter *a, double tau, const double *state, doubl
       }
       a->reached_calls = (int64_t)r * plan->num_modules + m + 1;
       if (probe) {
-        check_scratch(a, tau, coefficients, r, m, "first");
+        check_scratch(a, tau, r, m, "first");
       }
     }
   }
   if (probe) {
-    repeat_laws_reversed(a, &rctx, tau, coefficients);
+    repeat_laws_reversed(a, &rctx, tau);
   }
   return 0;
 }
 
-/** @brief struct RateLaw.evaluate: run the laws, and keep their coefficients for a failure file */
-static int evaluate_laws(void *data, double tau, const double *state, double *coefficients) {
-  struct LawAdapter *a = data;
-  const bool probe = a->plan->check_purity && a->evaluations == 0;
-  a->evaluations++;
-  a->last_tau = tau;
-  const int rc = run_laws(a, tau, state, coefficients, probe);
-  memcpy(a->seg->last_coefficients, coefficients,
-         (size_t)a->seg->num_rows * (size_t)a->plan->num_transfers * sizeof(double));
-  return rc;
-}
-
-/** @brief End the run with a one-screen account of a failed segment, and write its failure file */
+/**
+ * @brief   End the run with a one-screen account of a failed segment, and write its failure file
+ *
+ * Each field is written only when the failure names it (rate_assembly.h,
+ * Write-back). A failure that names no row (a ledger failure) names the
+ * component instead, by its row count and its first row.
+ */
 static void report_failure(const struct RateAssemblyPlan *plan, const struct ModuleContext *ctx,
                            const struct FoFWorkspace *ws, const struct Segment *seg,
                            const struct LawAdapter *law, const struct RateSegmentOutcome *outcome) {
   const struct RateFailure *f = &outcome->failure;
   const int P = plan->entries_per_row;
   const int T = plan->num_transfers;
-  const char *module = "(none)";
-  const char *transfer = "(none)";
-  const char *kind = "";
+  const char *module = NULL; /* the law named, if any */
+  const char *transfer = NULL;
+  const char *kind = NULL;
   int row = -1; /* the row whose law is named: the flux's evaluating row */
   char transfer_buffer[128];
 
@@ -1331,7 +1301,7 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
     transfer = transfer_buffer;
     row = law->failed_row;
   }
-  const char *entry = "(none)";
+  const char *entry = NULL;
   int entry_row = -1;
   if (f->entry >= 0 && P > 0) {
     entry = table_entry(plan->slot_property[f->entry % P])->name;
@@ -1343,32 +1313,52 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
   if (row < 0) {
     row = f->row;
   }
-  const int w = (row >= 0 && row < seg->num_rows) ? seg->rows[row] : -1;
-  const long long id = w >= 0 ? ws->halos[w].UniqueGalaxyID : -1;
-  const int type = w >= 0 ? ws->halos[w].Type : -1;
+  const bool has_row = row >= 0 && row < seg->num_rows;
+  const int w = seg->rows[has_row ? row : 0]; /* with no row named, the component's first */
+  const struct Halo *h = &ws->halos[w];
   const char *cause = rate_cause_name(f->cause);
+  const bool has_detail = f->detail != NULL && f->detail[0] != '\0';
+
+  /* The optional fields, each empty unless the failure names it */
+  char law_part[320] = "";
+  char total_part[160] = "";
+  char entry_part[256] = "";
+  if (module != NULL) {
+    snprintf(law_part, sizeof(law_part), ", module '%s', transfer '%s'", module, transfer);
+  }
+  if (f->total >= 0) {
+    snprintf(total_part, sizeof(total_part), ", total '%s'", total_name(f->total));
+  }
+  if (entry != NULL && entry_row == row) {
+    snprintf(entry_part, sizeof(entry_part), ", entry '%s'", entry);
+  } else if (entry != NULL) {
+    const int ew = seg->rows[entry_row];
+    snprintf(entry_part, sizeof(entry_part),
+             "; its flux names entry '%s' on row %d (workspace row %d, UniqueGalaxyID %lld)", entry,
+             entry_row, ew, ws->halos[ew].UniqueGalaxyID);
+  }
 
   ERROR_LOG("Rate segment failed in phase '%s' at snapshot %d, substep %d of %d (a component "
             "of %d row(s), %s scheme):",
             plan->phase_name, ctx->snapshot_number, ctx->substep_number + 1, ctx->num_substeps,
-            seg->num_rows, plan->settings.scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit");
-  ERROR_LOG("  cause: %s%s%s%s", cause, (f->detail != NULL && f->detail[0] != '\0') ? " (" : "",
-            f->detail != NULL ? f->detail : "",
-            (f->detail != NULL && f->detail[0] != '\0') ? ")" : "");
-  ERROR_LOG("  module '%s', transfer '%s'%s%s", module, transfer, kind[0] != '\0' ? ", a " : "",
-            kind);
-  if (entry_row >= 0 && entry_row != row) {
-    const int ew = seg->rows[entry_row];
-    ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d); its "
-              "flux names entry '%s' on row %d (workspace row %d, UniqueGalaxyID %lld)",
-              row, w, id, type, entry, entry_row, ew, ws->halos[ew].UniqueGalaxyID);
-  } else {
-    ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d), "
-              "entry '%s'",
-              row, w, id, type, entry);
+            seg->num_rows, rate_assembly_scheme_name(plan->settings.scheme));
+  ERROR_LOG("  cause: %s%s%s%s", cause, has_detail ? " (" : "", has_detail ? f->detail : "",
+            has_detail ? ")" : "");
+  if (module != NULL) {
+    ERROR_LOG("  module '%s', transfer '%s'%s%s", module, transfer, kind != NULL ? ", a " : "",
+              kind != NULL ? kind : "");
   }
   if (f->total >= 0) {
     ERROR_LOG("  total '%s'", total_name(f->total));
+  }
+  char where[192] = ""; /* with no row named, the component in place of a galaxy */
+  if (has_row) {
+    ERROR_LOG("  row %d of the component (workspace row %d, UniqueGalaxyID %lld, Type %d)%s", row,
+              w, h->UniqueGalaxyID, h->Type, entry_part);
+  } else {
+    snprintf(where, sizeof(where), "a component of %d row(s) from ", seg->num_rows);
+    ERROR_LOG("  no row named: %sworkspace row %d (UniqueGalaxyID %lld, Type %d)", where, w,
+              h->UniqueGalaxyID, h->Type);
   }
   ERROR_LOG("  tau %.17g, step %.17g; %" PRId64 " accepted and %" PRId64
             " rejected step(s), %" PRId64 " law evaluation(s)",
@@ -1376,17 +1366,18 @@ static void report_failure(const struct RateAssemblyPlan *plan, const struct Mod
             outcome->stats.law_evaluations);
   const struct FailureSummary summary = {.cause = cause,
                                          .detail = f->detail,
-                                         .module = module,
-                                         .transfer = transfer,
+                                         .module = module != NULL ? module : "(none)",
+                                         .transfer = transfer != NULL ? transfer : "(none)",
                                          .tau = f->tau,
                                          .step = f->step};
   char path[MAX_STRING_LEN + 64];
   if (write_failure_file(law, &summary, path, sizeof(path))) {
     ERROR_LOG("  failure file: %s", path);
   }
-  FATAL_ERROR("Rate segment failed: cause %s, module '%s', transfer '%s', workspace row %d "
-              "(UniqueGalaxyID %lld), tau %.17g",
-              cause, module, transfer, w, id, f->tau);
+  FATAL_ERROR("Rate segment failed: cause %s%s%s%s, %sworkspace row %d (UniqueGalaxyID %lld), tau "
+              "%.17g",
+              cause, law_part, total_part, entry_row == row ? entry_part : "", where, w,
+              h->UniqueGalaxyID, f->tau);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1467,22 +1458,28 @@ static void record_segment(struct RateStatistics *stats, const struct RateStepSt
   raise_to(&stats->maxima.k_max_bits, k_max_bits(segment->max_k_max));
 }
 
-void rate_statistics_log_summary(const struct RateStatistics *stats) {
-  /* Each total's entry is written whole or not at all; a list that does not fit ends "...". */
+bool rate_append_list_item(char *buffer, size_t size, size_t *used, const char *item) {
   static const char more[] = ", ...";
+  const size_t room = size > sizeof(more) + *used ? size - sizeof(more) - *used : 0;
+  const int written = snprintf(buffer + *used, room, "%s%s", *used > 0 ? ", " : "", item);
+  if (written < 0 || (size_t)written >= room) {
+    snprintf(buffer + *used, size - *used, "%s", *used > 0 ? more : "...");
+    return false;
+  }
+  *used += (size_t)written;
+  return true;
+}
+
+void rate_statistics_log_summary(const struct RateStatistics *stats) {
   char declared[512] = "";
   size_t used = 0;
   const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
   for (int t = 0; t < num_totals; t++) {
-    const size_t room =
-        sizeof(declared) > sizeof(more) + used ? sizeof(declared) - sizeof(more) - used : 0;
-    const int written = snprintf(declared + used, room, "%s%s %" PRIu64, t > 0 ? ", " : "",
-                                 total_name(t), stats->counts.declared_changes[t]);
-    if (written < 0 || (size_t)written >= room) {
-      snprintf(declared + used, sizeof(declared) - used, "%s", t > 0 ? more : "...");
+    char item[160];
+    snprintf(item, sizeof(item), "%s %" PRIu64, total_name(t), stats->counts.declared_changes[t]);
+    if (!rate_append_list_item(declared, sizeof(declared), &used, item)) {
       break;
     }
-    used += (size_t)written;
   }
   INFO_LOG("Rate integration: %" PRIu64 " segments, %" PRIu64 " accepted and %" PRIu64
            " rejected steps, %" PRIu64 " law evaluations; per segment at most %" PRIu64
@@ -1500,21 +1497,6 @@ void rate_statistics_log_summary(const struct RateStatistics *stats) {
 
 int rate_assembly_plan_num_transfers(const struct RateAssemblyPlan *plan) {
   return plan->num_transfers;
-}
-
-/** @brief The output name of a transfer kind, as module_info.yaml's vocabulary has it */
-static const char *transfer_kind_record(enum RateTransferKind kind) {
-  switch (kind) {
-  case RATE_TRANSFER_INTERNAL:
-    return "internal";
-  case RATE_TRANSFER_SINK:
-    return "sink";
-  case RATE_TRANSFER_SOURCE:
-    return "source";
-  case RATE_TRANSFER_SLAVED_SOURCE:
-    return "slaved_source";
-  }
-  return "unknown";
 }
 
 /** @brief A transfer end's property name, or "external" */
@@ -1536,27 +1518,12 @@ void rate_assembly_plan_transfer_record(const struct RateAssemblyPlan *plan, int
   record->from = end_record(t->from);
   record->to = end_record(t->to);
   record->to_record = t->to_record == RATE_TRANSFER_TO_CENTRAL ? "central" : "self";
-  record->kind = transfer_kind_record(t->kind);
+  record->kind = transfer_kind_name(t->kind);
   record->master = t->slaved_to != NULL ? t->slaved_to : "";
 }
 
 const char *rate_assembly_scheme_name(int scheme) {
   return scheme == RATE_SCHEME_IMPLICIT ? "implicit" : "explicit";
-}
-
-/* The compile-time constants of rate_integrator.c, stated once for the output record. */
-const char *rate_assembly_method_description(int scheme) {
-  if (scheme == RATE_SCHEME_IMPLICIT) {
-    return "Linearly implicit Patankar-Euler, coefficients frozen at the step start, solved per "
-           "galaxy block in subtraction-free (Grassmann-Taksar-Heyman) form; error estimate "
-           "M^-1 (dt/2) (F(x_n+1) - F(x_n)); controller factor 0.9 err^(-1/2) clamped to [0.2, "
-           "5], no growth after a rejection; scale floor 1e-12; landing stretch 1.1; minimum "
-           "step 2^-46";
-  }
-  return "SSPRK(4,3) explicit Runge-Kutta, embedded second-order weights (1/4, 1/4, 1/4, 1/4); "
-         "positivity C = 2, sigma = 0.9; controller factor 0.9 err^(-1/3) clamped to [0.2, 5], "
-         "no growth after a rejection; scale floor 1e-12; landing stretch 1.1; minimum step "
-         "2^-46";
 }
 
 /**
@@ -1579,11 +1546,10 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
   }
 
   /* The tables first: their layout does not depend on the integrator's share. */
-  struct SegmentLayout layout;
-  lay_out_segment(plan, num_rows, 0, &layout);
-  reserve_scratch(scratch, layout.total);
   struct Segment seg = {.num_rows = num_rows, .central = -1};
-  bind_segment(&layout, scratch->bytes, 0, &seg);
+  struct Segment measured;
+  reserve_scratch(scratch, carve_segment(plan, num_rows, 0, NULL, &measured));
+  carve_segment(plan, num_rows, 0, scratch->bytes, &seg);
 
   /* A one-row component takes its row directly, so a per-galaxy pass over N rows
    * visits each row once rather than scanning the workspace for every one. */
@@ -1605,7 +1571,7 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
     FATAL_ERROR("Rate phase '%s': gathered %d active row(s) for a component of %d",
                 plan->phase_name, r, num_rows);
   }
-  if (plan->needs_central && seg.central < 0) {
+  if (plan->whole_group && seg.central < 0) {
     FATAL_ERROR("Rate phase '%s': the FoF central (workspace row %d) is not an active row (it "
                 "has no galaxy or is Type 3), but a configured transfer goes to the central or "
                 "a configured module reads it",
@@ -1624,19 +1590,19 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
                                     .num_totals = MIMIC_RESERVOIR_TOTAL_COUNT};
   const size_t integrator_bytes =
       rate_integrator_workspace_bytes(&component, plan->settings.scheme);
-  lay_out_segment(plan, num_rows, integrator_bytes, &layout);
-  reserve_scratch(scratch, layout.total);
-  bind_segment(&layout, scratch->bytes, integrator_bytes, &seg);
+  reserve_scratch(scratch, carve_segment(plan, num_rows, integrator_bytes, NULL, &measured));
+  carve_segment(plan, num_rows, integrator_bytes, scratch->bytes, &seg);
   component.entries = seg.entries;
   component.fluxes = seg.fluxes;
   component.row_delta = seg.delta;
 
+  /* The gather: every row's scratch copy, and its start state, checked against the domain */
   for (r = 0; r < num_rows; r++) {
     const struct Halo *source = &ws->halos[seg.rows[r]];
     seg.galaxies[r] = *source->galaxy;
     seg.halos[r] = *source;
     seg.halos[r].galaxy = &seg.galaxies[r];
-    load_row(plan, source->galaxy, &seg.state[r * P]);
+    load_row(plan, ctx, ws, seg.rows[r], &seg.state[r * P]);
   }
 
   struct LawAdapter adapter = {.plan = plan,
@@ -1644,23 +1610,21 @@ static void integrate_component(const struct RateAssemblyPlan *plan,
                                .ws = ws,
                                .seg = &seg,
                                .invoke = invoke,
-                               .evaluations = 0,
-                               .last_tau = 0.0,
-                               .reached_calls = 0,
                                .failed_module = -1,
-                               .failed_row = -1,
-                               .failed_code = 0};
+                               .failed_row = -1};
   const struct RateLaw law = {.evaluate = evaluate_laws, .data = &adapter};
   struct RateSegmentOutcome outcome;
-  const enum RateCause cause =
-      rate_integrate_segment(&component, &law, &plan->settings, seg.integrator,
-                             seg.integrator_bytes, seg.state, NULL, NULL, &outcome);
+  const enum RateCause cause = rate_integrate_segment(
+      &component, &law, &plan->settings, seg.integrator, seg.integrator_bytes, seg.state, NULL,
+      NULL, seg.flux_amounts, &outcome);
   if (cause != RATE_CAUSE_NONE) {
     report_failure(plan, ctx, ws, &seg, &adapter, &outcome);
   }
 
   for (r = 0; r < num_rows; r++) {
-    store_row(plan, &seg.state[r * P], ws->halos[seg.rows[r]].galaxy);
+    struct GalaxyData *galaxy = ws->halos[seg.rows[r]].galaxy;
+    store_row(plan, &seg.state[r * P], galaxy);
+    add_observed_amounts(plan, seg.flux_amounts, r, galaxy);
   }
   record_segment(stats, &outcome.stats);
 }

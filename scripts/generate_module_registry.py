@@ -52,12 +52,15 @@ from discovery import (
     module_metadata_files,
     rel,
     standalone_module_files,
+    test_build_enabled,
     test_property_files,
 )
+from generate_properties import load_galaxy_property_metadata, reservoir_index_symbol
 from module_modes import (
     CALLBACK_FAMILIES,
     DEFAULT_TRANSFER_RECORD,
     EXTERNAL_END,
+    PROCESSING_MODES,
     STANDALONE_FALLBACK_MODES,
     TRANSFER_KINDS,
     TRANSFER_RECORDS,
@@ -327,25 +330,6 @@ def validate_property_dependencies(
                 )
 
     return errors
-
-
-def load_galaxy_property_metadata() -> Dict[str, Dict[str, Any]]:
-    """Load every galaxy property's metadata by name.
-
-    Reads the model's galaxy property files and, in test builds, the fixture-owned
-    test properties (test_property_files() is empty for production builds). The
-    rates: rules read each property's ``reservoir:`` mapping from these.
-    """
-    properties: Dict[str, Dict[str, Any]] = {}
-    for galaxy_props_path in model_property_files() + test_property_files():
-        try:
-            with open(galaxy_props_path, "r", encoding="utf-8") as f:
-                props_yaml = yaml.safe_load(f) or {}
-            for prop in props_yaml.get("galaxy_properties", []) or []:
-                properties[prop["name"]] = prop
-        except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
-            print_warning(f"Failed to load galaxy properties from {rel(galaxy_props_path)}: {e}")
-    return properties
 
 
 def validate_rate_declarations(
@@ -718,7 +702,7 @@ def reservoir_end_symbol(end: str) -> str:
     Ends are always written as symbols, never as integers, so a table left stale by
     a reservoir removed from the property metadata fails to compile.
     """
-    return "RATE_TRANSFER_EXTERNAL" if end == EXTERNAL_END else f"RESERVOIR_INDEX_{end}"
+    return "RATE_TRANSFER_EXTERNAL" if end == EXTERNAL_END else reservoir_index_symbol(end)
 
 
 def render_rate_contracts_h(modules: List[Dict[str, Any]], metadata_hash: str) -> str:
@@ -882,9 +866,10 @@ def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> Li
     lines.append("")
     lines.append("/*")
     lines.append(" * Forward declarations for module lifecycle functions.")
+    families = ", ".join(family.key for family in CALLBACK_FAMILIES)
     lines.append(" * These functions are implemented in each module's .c file. A typed")
-    lines.append(" * process callback is declared only for the callback families (FoF,")
-    lines.append(" * snapshot) that the module's supported_processing_modes advertise.")
+    lines.append(f" * process callback is declared only for the callback families ({families})")
+    lines.append(" * that the module's supported_processing_modes advertise.")
     lines.append(" *")
     lines.append(" * Eliminates need for per-module header files.")
     lines.append(" */")
@@ -1068,9 +1053,10 @@ def generate_module_struct_definitions(
         emitted_ids_val = f"{name}_emitted_event_ids" if num_emitted > 0 else "NULL"
 
         rate_module = is_rate_module(module)
-        if rate_module:
-            # External linkage, unlike other modules' registrations, so the C unit
-            # tests can read the generated rate members directly.
+        if rate_module and test_build_enabled():
+            # External linkage in test builds only, unlike other modules' registrations,
+            # so the C unit tests can read the generated rate members directly. A
+            # production build keeps every registration static.
             lines.append(f"struct Module {name}_module = {{")
         else:
             lines.append(f"static struct Module {name}_module = {{")
@@ -1158,12 +1144,8 @@ def generate_module_init_c(
     lines.append("")
     lines.append("/*")
     lines.append(" * These arrays define which processing modes each module supports:")
-    lines.append(" * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (ngal > 1)")
-    lines.append(
-        " * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time (ngal = 1)"
-    )
-    lines.append(" * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)")
-    lines.append(" * - PROCESSING_MODE_SNAPSHOT: Module processes one whole snapshot population")
+    for mode in PROCESSING_MODES:
+        lines.append(f" * - {mode.enum}: {mode.summary}")
     lines.append(" *")
     lines.append(" * Generated from supported_processing_modes metadata through the shared")
     lines.append(" * descriptors in scripts/module_modes.py. Runtime directory modules declare")

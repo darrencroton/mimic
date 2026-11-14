@@ -3,24 +3,28 @@
  * @brief   Proving problems for the explicit rate integrator and its segment closure
  *
  * Validates: rate_integrate_segment() and rate_check_closure() on hand-built
- * components: measured convergence orders and tolerance ratios, conservation
- * within tol_F, positivity, canonical-order independence, mixed and zero row
- * Delta values, the first-step and empty-state rules, repeatability, and every
- * named failure with the caller's state left untouched.
+ * components: measured convergence orders (one of them on a time-dependent
+ * law, which pins the stage times) and tolerance ratios, conservation within
+ * tol_F, positivity, canonical-order independence, mixed and zero row Delta
+ * values, the starting step, near-empty and draining states, the controller,
+ * repeatability, and every named failure with the caller's state left
+ * untouched.
  *
  * Every expected value comes from a closed form written in this file, never
  * from the integrator. Every system's values are literals here; the star's
- * random satellites come from the fixed-seed SplitMix64 generator below. Times
- * are in normalised segment time tau, so a row with segment length Delta has
- * evolved for t = Delta at tau = 1. The error of a problem is the largest
- * absolute difference between a computed entry and its closed form at tau = 1.
- * Unless a case says otherwise the absolute tolerance is 1e-3 times the
- * relative tolerance. Each case prints the measured figures beside its bound.
+ * random satellites come from the fixed-seed SplitMix64 generator of
+ * rate_test_support.h. Times are in normalised segment time tau, so a row with
+ * segment length Delta has evolved for t = Delta at tau = 1. The error of a
+ * problem is the largest absolute difference between a computed entry and its
+ * closed form at tau = 1. Unless a case says otherwise the absolute tolerance
+ * is 1e-3 times the relative tolerance. Each case prints the measured figures
+ * beside its bound.
  */
 
 #include "../framework/test_framework.h"
 #include "../../src/core/rate_integrator.h"
 #include "../../src/util/error.h"
+#include "rate_test_support.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -31,140 +35,17 @@
 static int passed = 0;
 static int failed = 0;
 
-/* u = 2^-53, the unit roundoff of IEEE binary64. */
-#define UNIT_ROUNDOFF 0x1p-53
-
-#define MAX_ENTRIES 1024
-#define MAX_FLUXES 2048
-#define MAX_ROWS 1024
-#define MAX_TOTALS 4
-#define LOG_CAPACITY 8192
-
 /* ---------------------------------------------------------------------------
- * Hand-built systems
+ * Laws (rate_test_support.h, struct Probe): each overwrites the coefficients it
+ * owns after the constant coefficients are set
  * ------------------------------------------------------------------------- */
-
-/** A component under construction, its state, and the constant coefficient of each flux. */
-struct System {
-  struct RateEntry entries[MAX_ENTRIES];
-  struct RateFlux fluxes[MAX_FLUXES];
-  double delta[MAX_ROWS];
-  double state[MAX_ENTRIES];
-  double coefficient[MAX_FLUXES]; /* used by constant_law() */
-  int num_entries;
-  int num_fluxes;
-  int num_rows;
-  int num_totals;
-};
-
-static void system_init(struct System *system, int num_rows, int num_totals) {
-  memset(system, 0, sizeof(*system));
-  system->num_rows = num_rows;
-  system->num_totals = num_totals;
-}
-
-static int add_entry(struct System *system, int row, int total, double content) {
-  const int index = system->num_entries++;
-  system->entries[index].row = row;
-  system->entries[index].total = total;
-  system->entries[index].kind = RATE_ENTRY_RESERVOIR;
-  system->entries[index].parent = -1;
-  system->entries[index].flux = -1;
-  system->state[index] = content;
-  return index;
-}
-
-static int add_flux(struct System *system, enum RateFluxKind kind, int from, int to,
-                    int global_index, double coefficient) {
-  const int index = system->num_fluxes++;
-  system->fluxes[index].kind = kind;
-  system->fluxes[index].from = from;
-  system->fluxes[index].to = to;
-  system->fluxes[index].global_index = global_index;
-  system->fluxes[index].master = -1;
-  system->coefficient[index] = coefficient;
-  return index;
-}
-
-static struct RateComponent component_of(const struct System *system) {
-  const struct RateComponent component = {
-      .entries = system->entries,
-      .num_entries = system->num_entries,
-      .fluxes = system->fluxes,
-      .num_fluxes = system->num_fluxes,
-      .row_delta = system->delta,
-      .num_rows = system->num_rows,
-      .num_totals = system->num_totals,
-  };
-  return component;
-}
-
-/* ---------------------------------------------------------------------------
- * Laws, with a probe that sees every state the integrator evaluates them at
- * ------------------------------------------------------------------------- */
-
-struct LawProbe;
-typedef int (*LawFill)(const struct LawProbe *probe, double tau, const double *x, double *k);
-
-/**
- * K_max bookkeeping, for a law whose K_max at a state the test can write down
- * (k_of_state): the K at the latest stage-1 evaluation (the first evaluation
- * after an accepted step, or of the segment) and the largest K at the other
- * evaluations since the last attempt report. The adaptive first step's probe,
- * the segment's second evaluation when the start has a non-zero weight, is no
- * stage of any attempt and is skipped through skip_evaluation.
- */
-struct LawProbe {
-  const struct System *system;
-  LawFill fill;
-  double bad_value;                      /* the faulty laws' coefficient from tau = 0.5 on */
-  int64_t evaluations;                   /* law evaluations seen */
-  double min_state;                      /* smallest entry any law was evaluated at */
-  double (*k_of_state)(const double *x); /* NULL: no K bookkeeping */
-  int64_t skip_evaluation;               /* 1-based evaluation to leave out, or 0 */
-  int expect_stage1;
-  double k_stage1;
-  double k_attempt;
-};
-
-static int probed_law(void *data, double tau, const double *state, double *coefficients) {
-  struct LawProbe *probe = data;
-  probe->evaluations++;
-  for (int i = 0; i < probe->system->num_entries; i++) {
-    if (state[i] < probe->min_state) {
-      probe->min_state = state[i];
-    }
-  }
-  if (probe->k_of_state != NULL && probe->evaluations != probe->skip_evaluation) {
-    const double k = probe->k_of_state(state);
-    if (probe->expect_stage1) {
-      probe->k_stage1 = k;
-      probe->expect_stage1 = 0;
-    } else if (k > probe->k_attempt) {
-      probe->k_attempt = k;
-    }
-  }
-  return probe->fill(probe, tau, state, coefficients);
-}
-
-/** Each flux's coefficient is its constant in System.coefficient. */
-static int constant_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
-  (void)tau;
-  (void)x;
-  for (int f = 0; f < probe->system->num_fluxes; f++) {
-    k[f] = probe->system->coefficient[f];
-  }
-  return 0;
-}
 
 /**
  * Each sink drains its constant in System.coefficient as an amount per unit
- * time (coefficient c / x for the donor's content x); every other flux keeps
- * its constant coefficient.
+ * time (coefficient c / x for the donor's content x).
  */
-static int constant_outflow_law(const struct LawProbe *probe, double tau, const double *x,
-                                double *k) {
-  constant_law(probe, tau, x, k);
+static int constant_outflow_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)tau;
   for (int f = 0; f < probe->system->num_fluxes; f++) {
     const struct RateFlux *flux = &probe->system->fluxes[f];
     if (flux->kind == RATE_FLUX_SINK) {
@@ -175,7 +56,7 @@ static int constant_outflow_law(const struct LawProbe *probe, double tau, const 
 }
 
 /** Closed cycle: A to B at 1 + 0.5 B, B to C at 2 / (1 + C), C to A at 0.7 + 0.3 A^2. */
-static int cycle_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
+static int cycle_law(const struct Probe *probe, double tau, const double *x, double *k) {
   (void)probe;
   (void)tau;
   k[0] = 1.0 + 0.5 * x[1];
@@ -185,7 +66,7 @@ static int cycle_law(const struct LawProbe *probe, double tau, const double *x, 
 }
 
 /** Bimolecular: A to C at 2 B, B to C at 2 A. */
-static int bimolecular_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
+static int bimolecular_law(const struct Probe *probe, double tau, const double *x, double *k) {
   (void)probe;
   (void)tau;
   k[0] = 2.0 * x[1];
@@ -194,7 +75,7 @@ static int bimolecular_law(const struct LawProbe *probe, double tau, const doubl
 }
 
 /** Threshold: a source of 1 into G; G to S at 3 max(0, G - 1) / G. */
-static int threshold_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
+static int threshold_law(const struct Probe *probe, double tau, const double *x, double *k) {
   (void)probe;
   (void)tau;
   k[0] = 1.0;
@@ -203,7 +84,7 @@ static int threshold_law(const struct LawProbe *probe, double tau, const double 
 }
 
 /** A sink at c / x with c = 1: a constant outflow that empties x in finite time. */
-static int inverse_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
+static int inverse_law(const struct Probe *probe, double tau, const double *x, double *k) {
   (void)probe;
   (void)tau;
   k[0] = 1.0 / x[0];
@@ -211,11 +92,19 @@ static int inverse_law(const struct LawProbe *probe, double tau, const double *x
 }
 
 /** A source of 1, and a sink at 10 / (x - 0.5) above 0.5 and zero at or below it. */
-static int divergent_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
+static int divergent_law(const struct Probe *probe, double tau, const double *x, double *k) {
   (void)probe;
   (void)tau;
   k[0] = 1.0;
   k[1] = (x[0] > 0.5) ? 10.0 / (x[0] - 0.5) : 0.0;
+  return 0;
+}
+
+/** A sink whose coefficient is 1 + 3 tau^2: x' = -Delta (1 + 3 tau^2) x in tau units. */
+static int time_dependent_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)probe;
+  (void)x;
+  k[0] = 1.0 + 3.0 * tau * tau;
   return 0;
 }
 
@@ -225,7 +114,7 @@ static double coupled_sink_k(const double *x) {
 }
 
 /** A source of 10 into B, and a sink out of A at 1 + 50 B. */
-static int coupled_sink_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
+static int coupled_sink_law(const struct Probe *probe, double tau, const double *x, double *k) {
   (void)probe;
   (void)tau;
   k[0] = 10.0;
@@ -234,8 +123,8 @@ static int coupled_sink_law(const struct LawProbe *probe, double tau, const doub
 }
 
 /** Constant coefficients until tau = 0.5, then flux 1 returns the probe's bad value. */
-static int faulty_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
-  constant_law(probe, tau, x, k);
+static int faulty_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)x;
   if (tau >= 0.5) {
     k[1] = probe->bad_value;
   }
@@ -243,167 +132,33 @@ static int faulty_law(const struct LawProbe *probe, double tau, const double *x,
 }
 
 /** Constant coefficients until tau = 0.5, then the law reports failure. */
-static int failing_law(const struct LawProbe *probe, double tau, const double *x, double *k) {
-  constant_law(probe, tau, x, k);
+static int failing_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)probe;
+  (void)x;
+  (void)k;
   return (tau >= 0.5) ? 1 : 0;
 }
 
-static struct LawProbe law_probe(LawFill fill) {
-  const struct LawProbe probe = {
-      .system = NULL, .fill = fill, .bad_value = 0.0, .k_of_state = NULL, .expect_stage1 = 1};
-  return probe;
-}
-
-/* ---------------------------------------------------------------------------
- * Attempt log (RateIntegratorSettings.on_attempt)
- * ------------------------------------------------------------------------- */
-
-struct AttemptLog {
-  int num_entries;
-  int64_t count;
-  double tau[LOG_CAPACITY];
-  double step[LOG_CAPACITY];
-  int accepted[LOG_CAPACITY];
-  double min_committed;     /* smallest entry of any committed state */
-  int bad_step;             /* a step that was not finite and positive */
-  int64_t weighed;          /* attempts whose error estimate ran */
-  int bad_weight;           /* an estimate with a non-finite or non-positive smallest weight */
-  int non_finite_error;     /* an estimate with a non-finite error norm */
-  int previous_rejected;    /* the previous attempt was rejected */
-  double post_rejection;    /* an accepted step that followed a rejection, else 0 */
-  int grew_after_rejection; /* the attempt after it was longer than the landing stretch allows */
-  struct LawProbe *probe;   /* K bookkeeping source, or NULL */
-  double worst_k_product;   /* largest step * K_max over the stages of accepted steps */
-};
-
-/** Track step * K_max over every stage of accepted attempts (LawProbe.k_of_state). */
-static void check_k_product(struct AttemptLog *log, const struct RateAttempt *attempt) {
-  struct LawProbe *probe = log->probe;
-  if (probe == NULL || probe->k_of_state == NULL) {
-    return;
-  }
-  if (attempt->accepted) {
-    const double product = attempt->step * fmax(probe->k_stage1, probe->k_attempt);
-    if (product > log->worst_k_product) {
-      log->worst_k_product = product;
-    }
-    probe->expect_stage1 = 1;
-  }
-  probe->k_attempt = 0.0;
-}
-
-static void log_attempt(void *data, const struct RateAttempt *attempt) {
-  struct AttemptLog *log = data;
-  if (log->count < LOG_CAPACITY) {
-    log->tau[log->count] = attempt->tau;
-    log->step[log->count] = attempt->step;
-    log->accepted[log->count] = attempt->accepted;
-  }
-  log->count++;
-  check_k_product(log, attempt);
-  /* No growth on the step after a rejection: only the 10% landing stretch may lengthen it. */
-  if (log->post_rejection > 0.0 && attempt->step > 1.1 * log->post_rejection) {
-    log->grew_after_rejection = 1;
-  }
-  log->post_rejection = (attempt->accepted && log->previous_rejected) ? attempt->step : 0.0;
-  log->previous_rejected = !attempt->accepted;
-  if (!isfinite(attempt->step) || !(attempt->step > 0.0)) {
-    log->bad_step = 1;
-  }
-  if (attempt->accepted) {
-    for (int i = 0; i < log->num_entries; i++) {
-      if (attempt->state[i] < log->min_committed) {
-        log->min_committed = attempt->state[i];
-      }
-    }
-  }
-  if (attempt->error_norm >= 0.0) {
-    log->weighed++;
-    if (!isfinite(attempt->min_weight) || !(attempt->min_weight > 0.0)) {
-      log->bad_weight = 1;
-    }
-    if (!isfinite(attempt->error_norm)) {
-      log->non_finite_error = 1;
-    }
-  }
-}
-
-static void attach_log(struct RateIntegratorSettings *settings, struct AttemptLog *log,
-                       const struct System *system) {
-  memset(log, 0, sizeof(*log));
-  log->num_entries = system->num_entries;
-  log->min_committed = INFINITY;
-  settings->on_attempt = log_attempt;
-  settings->attempt_data = log;
-}
-
-/** True when two logs hold the same attempt sequence, bit for bit. */
-static int same_sequence(const struct AttemptLog *a, const struct AttemptLog *b) {
-  if (a->count != b->count || a->count > LOG_CAPACITY) {
-    return 0;
-  }
-  const size_t n = (size_t)a->count;
-  return memcmp(a->tau, b->tau, n * sizeof(double)) == 0 &&
-         memcmp(a->step, b->step, n * sizeof(double)) == 0 &&
-         memcmp(a->accepted, b->accepted, n * sizeof(int)) == 0;
-}
-
-/* ---------------------------------------------------------------------------
- * Running a segment
- * ------------------------------------------------------------------------- */
-
-/* The caller-owned workspace every case integrates in. */
-static double workspace[1 << 17];
-
-static struct RateIntegratorSettings adaptive_settings(double relative_tolerance) {
-  struct RateIntegratorSettings settings;
-  rate_integrator_default_settings(&settings);
-  settings.relative_tolerance = relative_tolerance;
-  settings.absolute_tolerance = 1e-3 * relative_tolerance;
-  return settings;
-}
-
-static struct RateIntegratorSettings fixed_settings(int64_t steps) {
-  struct RateIntegratorSettings settings;
-  rate_integrator_default_settings(&settings);
-  settings.fixed_steps = steps;
-  return settings;
-}
-
-struct Run {
-  enum RateCause cause;
-  struct RateSegmentOutcome outcome;
-  double source[MAX_TOTALS];
-  double sink[MAX_TOTALS];
-};
-
-/** Integrate @p system's state in place; returns 0, or 1 when the workspace is too small. */
-static int run_segment(struct System *system, struct LawProbe *probe,
-                       const struct RateIntegratorSettings *settings, struct Run *run) {
-  const struct RateComponent component = component_of(system);
-  if (rate_integrator_workspace_bytes(&component, settings->scheme) > sizeof(workspace)) {
-    return 1;
-  }
-  const struct RateLaw law = {.evaluate = probed_law, .data = probe};
-  probe->system = system;
-  probe->evaluations = 0;
-  probe->min_state = INFINITY;
-  probe->expect_stage1 = 1;
-  probe->k_stage1 = 0.0;
-  probe->k_attempt = 0.0;
-  run->cause = rate_integrate_segment(&component, &law, settings, workspace, sizeof(workspace),
-                                      system->state, run->source, run->sink, &run->outcome);
+/** A sink at c / x, c = 1, that returns +infinity at an empty donor. */
+static int empty_donor_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)probe;
+  (void)tau;
+  k[0] = (x[0] > 0.0) ? 1.0 / x[0] : INFINITY;
   return 0;
 }
 
-/** tol_F = 8u [(L + 2) N_acc + n_F + 2] (sum |x(start)| + Src + Snk). */
-static double closure_tolerance(int max_terms, int64_t accepted, int members,
-                                double start_magnitude, double source, double sink) {
-  const double terms = (double)(max_terms + 2) * (double)accepted + (double)members + 2.0;
-  return 8.0 * UNIT_ROUNDOFF * terms * (start_magnitude + source + sink);
-}
-
 static double max3(double a, double b, double c) { return fmax(a, fmax(b, c)); }
+
+/**
+ * The controller's step factor written from its rule: 0.9 err^(-1/3) clamped to
+ * [0.2, 5], or 5 at err = 0.
+ */
+static double controller_factor(double err) {
+  if (err == 0.0) {
+    return 5.0;
+  }
+  return fmin(5.0, fmax(0.2, 0.9 / cbrt(err)));
+}
 
 /* ---------------------------------------------------------------------------
  * Problem builders and closed forms
@@ -416,8 +171,8 @@ static void build_chain(struct System *system, double delta) {
   const int a = add_entry(system, 0, 0, 1.0);
   const int b = add_entry(system, 0, 0, 0.0);
   const int c = add_entry(system, 0, 0, 0.0);
-  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, 1.0);
-  add_flux(system, RATE_FLUX_INTERNAL, b, c, 1, 0.3);
+  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, -1, 1.0);
+  add_flux(system, RATE_FLUX_INTERNAL, b, c, 1, -1, 0.3);
 }
 
 static double chain_error(const double *x, double t) {
@@ -436,8 +191,8 @@ static void build_bimolecular(struct System *system) {
   const int a = add_entry(system, 0, 0, 1.0);
   const int b = add_entry(system, 0, 0, 0.6);
   const int c = add_entry(system, 0, 0, 0.0);
-  add_flux(system, RATE_FLUX_INTERNAL, a, c, 0, 0.0);
-  add_flux(system, RATE_FLUX_INTERNAL, b, c, 1, 0.0);
+  add_flux(system, RATE_FLUX_INTERNAL, a, c, 0, -1, 0.0);
+  add_flux(system, RATE_FLUX_INTERNAL, b, c, 1, -1, 0.0);
 }
 
 static double bimolecular_error(const double *x) {
@@ -458,8 +213,8 @@ static void build_threshold(struct System *system, double g0) {
   system->delta[0] = 2.0;
   const int g = add_entry(system, 0, 0, g0);
   const int s = add_entry(system, 0, 0, 0.0);
-  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, g, 0, 0.0);
-  add_flux(system, RATE_FLUX_INTERNAL, g, s, 1, 0.0);
+  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, g, 0, -1, 0.0);
+  add_flux(system, RATE_FLUX_INTERNAL, g, s, 1, -1, 0.0);
 }
 
 /**
@@ -482,22 +237,9 @@ static void build_stiff_pair(struct System *system, double k) {
   system->delta[0] = 3.0;
   const int a = add_entry(system, 0, 0, 0.5);
   const int b = add_entry(system, 0, 0, 0.5);
-  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, k);
-  add_flux(system, RATE_FLUX_INTERNAL, b, a, 1, k);
-  add_flux(system, RATE_FLUX_SINK, b, RATE_END_EXTERNAL, 2, 1.0);
-}
-
-/** SplitMix64: the fixed-seed generator of the star's satellites. */
-static double next_uniform(uint64_t *seed) {
-  uint64_t z = (*seed += 0x9E3779B97F4A7C15ull);
-  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-  z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-  z ^= z >> 31;
-  return (double)(z >> 11) * 0x1p-53;
-}
-
-static double uniform_in(uint64_t *seed, double low, double high) {
-  return low + (high - low) * next_uniform(seed);
+  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, -1, k);
+  add_flux(system, RATE_FLUX_INTERNAL, b, a, 1, -1, k);
+  add_flux(system, RATE_FLUX_SINK, b, RATE_END_EXTERNAL, 2, -1, 1.0);
 }
 
 /** The star's parameters, kept for its closed form. */
@@ -524,7 +266,7 @@ static void build_star(struct System *system, struct Star *star, int satellites,
   system->delta[0] = star->central_delta;
   const int h = add_entry(system, 0, 0, star->h0);
   const int cold = add_entry(system, 0, 0, 0.1);
-  add_flux(system, RATE_FLUX_INTERNAL, h, cold, 0, 0.9);
+  add_flux(system, RATE_FLUX_INTERNAL, h, cold, 0, -1, 0.9);
   for (int s = 1; s <= satellites; s++) {
     star->satellite_delta[s] = uniform_in(&seed, 1.0, 1.5);
     star->k_to_central[s] = uniform_in(&seed, 1.0, 2.0);
@@ -533,8 +275,8 @@ static void build_star(struct System *system, struct Star *star, int satellites,
     system->delta[s] = star->satellite_delta[s];
     const int gas = add_entry(system, s, 0, star->g0[s]);
     const int stars = add_entry(system, s, 0, 0.0);
-    add_flux(system, RATE_FLUX_INTERNAL, gas, h, 1, star->k_to_central[s]);
-    add_flux(system, RATE_FLUX_INTERNAL, gas, stars, 2, star->k_to_stars[s]);
+    add_flux(system, RATE_FLUX_INTERNAL, gas, h, 1, -1, star->k_to_central[s]);
+    add_flux(system, RATE_FLUX_INTERNAL, gas, stars, 2, -1, star->k_to_stars[s]);
   }
 }
 
@@ -565,7 +307,7 @@ static int test_linear_chain_fixed_steps_third_order(void) {
   double error[4];
   for (int j = 0; j < 4; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(constant_law);
+    struct Probe probe = law_probe(NULL);
     const struct RateIntegratorSettings settings = fixed_settings(steps[j]);
     struct Run run;
     build_chain(&system, 2.0);
@@ -594,7 +336,7 @@ static int test_linear_chain_adaptive_tolerance_ratio(void) {
   double relative_tolerance = 1e-3;
   for (int j = 0; j < 8; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(constant_law);
+    struct Probe probe = law_probe(NULL);
     const struct RateIntegratorSettings settings = adaptive_settings(relative_tolerance);
     struct Run run;
     build_chain(&system, 20.0);
@@ -628,7 +370,7 @@ static int test_bimolecular_fixed_steps_order_and_invariants(void) {
   double error[4];
   for (int j = 0; j < 4; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(bimolecular_law);
+    struct Probe probe = law_probe(bimolecular_law);
     const struct RateIntegratorSettings settings = fixed_settings(steps[j]);
     struct Run run;
     build_bimolecular(&system);
@@ -670,7 +412,7 @@ static int test_threshold_fixed_steps_second_order(void) {
   for (int j = 0; j < 6; j++) {
     const double g0 = 1.0 / (double)steps[j];
     struct System system;
-    struct LawProbe probe = law_probe(threshold_law);
+    struct Probe probe = law_probe(threshold_law);
     const struct RateIntegratorSettings settings = fixed_settings(steps[j]);
     struct Run run;
     build_threshold(&system, g0);
@@ -701,7 +443,7 @@ static int test_threshold_adaptive_tolerance_ratio(void) {
   double error[4];
   for (int j = 0; j < 4; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(threshold_law);
+    struct Probe probe = law_probe(threshold_law);
     struct RateIntegratorSettings settings = adaptive_settings(tolerances[j]);
     static struct AttemptLog log;
     struct Run run;
@@ -740,7 +482,7 @@ static int test_closed_cycle_total_within_tolerance(void) {
   const int64_t steps[] = {1000, 10000, 100000};
   for (int j = 0; j < 3; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(cycle_law);
+    struct Probe probe = law_probe(cycle_law);
     const struct RateIntegratorSettings settings = fixed_settings(steps[j]);
     struct Run run;
     system_init(&system, 1, 1);
@@ -748,9 +490,9 @@ static int test_closed_cycle_total_within_tolerance(void) {
     const int a = add_entry(&system, 0, 0, 0.5);
     const int b = add_entry(&system, 0, 0, 0.3);
     const int c = add_entry(&system, 0, 0, 0.2);
-    add_flux(&system, RATE_FLUX_INTERNAL, a, b, 0, 0.0);
-    add_flux(&system, RATE_FLUX_INTERNAL, b, c, 1, 0.0);
-    add_flux(&system, RATE_FLUX_INTERNAL, c, a, 2, 0.0);
+    add_flux(&system, RATE_FLUX_INTERNAL, a, b, 0, -1, 0.0);
+    add_flux(&system, RATE_FLUX_INTERNAL, b, c, 1, -1, 0.0);
+    add_flux(&system, RATE_FLUX_INTERNAL, c, a, 2, -1, 0.0);
     TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "fixed-step cycle must integrate");
     const double start_total = (0.5 + 0.3) + 0.2;
@@ -782,14 +524,14 @@ static int test_source_sink_external_amounts(void) {
   const int64_t steps[] = {1000, 10000, 100000};
   for (int j = 0; j < 3; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(constant_law);
+    struct Probe probe = law_probe(NULL);
     const struct RateIntegratorSettings settings = fixed_settings(steps[j]);
     struct Run run;
     system_init(&system, 1, 1);
     system.delta[0] = delta;
     const int r = add_entry(&system, 0, 0, r0);
-    add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, s);
-    add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 1, k);
+    add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, -1, s);
+    add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 1, -1, k);
     TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "fixed-step source and sink must integrate");
     const double n = (double)steps[j];
@@ -822,7 +564,7 @@ static int test_source_sink_external_amounts(void) {
  */
 static int test_mixed_delta_cross_record_conserves(void) {
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   const struct RateIntegratorSettings settings = adaptive_settings(1e-6);
   struct Run run;
   system_init(&system, 3, 1);
@@ -833,11 +575,11 @@ static int test_mixed_delta_cross_record_conserves(void) {
   const int c = add_entry(&system, 0, 0, 0.2);
   const int g1 = add_entry(&system, 1, 0, 1.0);
   const int g2 = add_entry(&system, 2, 0, 0.6);
-  add_flux(&system, RATE_FLUX_INTERNAL, h, c, 0, 0.5);
-  add_flux(&system, RATE_FLUX_INTERNAL, g1, h, 1, 1.3);
-  add_flux(&system, RATE_FLUX_INTERNAL, g2, h, 1, 0.9);
-  add_flux(&system, RATE_FLUX_SINK, c, RATE_END_EXTERNAL, 2, 0.2);
-  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, g1, 3, 0.3);
+  add_flux(&system, RATE_FLUX_INTERNAL, h, c, 0, -1, 0.5);
+  add_flux(&system, RATE_FLUX_INTERNAL, g1, h, 1, -1, 1.3);
+  add_flux(&system, RATE_FLUX_INTERNAL, g2, h, 1, -1, 0.9);
+  add_flux(&system, RATE_FLUX_SINK, c, RATE_END_EXTERNAL, 2, -1, 0.2);
+  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, g1, 3, -1, 0.3);
   const double start_total = ((0.4 + 0.2) + 1.0) + 0.6;
   TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
   TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "mixed-Delta component must integrate");
@@ -860,13 +602,15 @@ static int test_mixed_delta_cross_record_conserves(void) {
  * Total 0 holds three entries summing to 1 at the start; the end adds 1e-6 to
  * one entry. Expected: cause ledger naming total 0 with no external amount, and
  * success when the difference is declared as a source, or as a sink when the
- * end removes it.
+ * end removes it. Then an imbalance planted at 0.5 and at 2 times total 0's
+ * tol_F (L = 2, N_acc = 10, three members, start magnitude 1), written here:
+ * the first closes, the second fails naming total 0.
  */
 static int test_closure_check_detects_imbalance(void) {
-  const struct RateEntry entries[] = {{0, 0, RATE_ENTRY_RESERVOIR, -1, -1},
-                                      {0, 0, RATE_ENTRY_RESERVOIR, -1, -1},
-                                      {1, 0, RATE_ENTRY_RESERVOIR, -1, -1},
-                                      {1, 1, RATE_ENTRY_RESERVOIR, -1, -1}};
+  const struct RateEntry entries[] = {{0, 0, RATE_ENTRY_RESERVOIR, -1},
+                                      {0, 0, RATE_ENTRY_RESERVOIR, -1},
+                                      {1, 0, RATE_ENTRY_RESERVOIR, -1},
+                                      {1, 1, RATE_ENTRY_RESERVOIR, -1}};
   const double start[] = {0.3, 0.5, 0.2, 0.9};
   const double raised[] = {0.3, 0.5, 0.2 + 1e-6, 0.9};
   const double lowered[] = {0.3, 0.5, 0.2 - 1e-6, 0.9};
@@ -906,6 +650,18 @@ static int test_closure_check_detects_imbalance(void) {
   input.sink_amounts = declared;
   TEST_ASSERT(rate_check_closure(&input, &failure) == RATE_CAUSE_NONE,
               "a loss declared as a sink must close");
+
+  const double tol_f = closure_tolerance(2, 10, 3, (0.3 + 0.5) + 0.2, 0.0, 0.0);
+  double planted[] = {0.3, 0.5, 0.2 + 0.5 * tol_f, 0.9};
+  input.end_state = planted;
+  input.source_amounts = NULL;
+  input.sink_amounts = NULL;
+  printf("\n  closure tol_F=%.6e; planted at 0.5 tol_F and 2 tol_F\n", tol_f);
+  TEST_ASSERT(rate_check_closure(&input, &failure) == RATE_CAUSE_NONE,
+              "an imbalance of half tol_F must close");
+  planted[2] = 0.2 + 2.0 * tol_f;
+  TEST_ASSERT(rate_check_closure(&input, &failure) == RATE_CAUSE_LEDGER && failure.total == 0,
+              "an imbalance of twice tol_F must fail the closure, naming total 0");
   return TEST_PASS;
 }
 
@@ -924,7 +680,7 @@ static void build_three_sinks(struct System *system, const int *order) {
   add_entry(system, 0, 0, 0.0);
   for (int i = 0; i < 3; i++) {
     const int transfer = order[i];
-    add_flux(system, RATE_FLUX_INTERNAL, s, 1 + transfer, transfer, coefficient[transfer]);
+    add_flux(system, RATE_FLUX_INTERNAL, s, 1 + transfer, transfer, -1, coefficient[transfer]);
   }
 }
 
@@ -937,7 +693,7 @@ static void build_three_sinks(struct System *system, const int *order) {
 static int test_three_sinks_split_in_coefficient_ratio(void) {
   const int order[] = {0, 1, 2};
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   const struct RateIntegratorSettings settings = adaptive_settings(1e-4);
   struct Run run;
   build_three_sinks(&system, order);
@@ -963,7 +719,7 @@ static int test_three_sinks_split_in_coefficient_ratio(void) {
 static int test_two_fast_sinks_stay_non_negative(void) {
   for (int external = 0; external <= 1; external++) {
     struct System system;
-    struct LawProbe probe = law_probe(constant_law);
+    struct Probe probe = law_probe(NULL);
     struct RateIntegratorSettings settings = adaptive_settings(1e-4);
     struct AttemptLog log;
     struct Run run;
@@ -973,8 +729,8 @@ static int test_two_fast_sinks_stay_non_negative(void) {
     const int x = add_entry(&system, 0, 0, 0.0);
     const int y = add_entry(&system, 0, 0, 0.0);
     const enum RateFluxKind kind = external ? RATE_FLUX_SINK : RATE_FLUX_INTERNAL;
-    add_flux(&system, kind, s, external ? RATE_END_EXTERNAL : x, 0, 300.0);
-    add_flux(&system, kind, s, external ? RATE_END_EXTERNAL : y, 1, 700.0);
+    add_flux(&system, kind, s, external ? RATE_END_EXTERNAL : x, 0, -1, 300.0);
+    add_flux(&system, kind, s, external ? RATE_END_EXTERNAL : y, 1, -1, 700.0);
     attach_log(&settings, &log, &system);
     TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "two fast sinks must integrate");
@@ -1002,7 +758,7 @@ static int test_source_driven_sink_stays_non_negative(void) {
   const double tolerances[] = {1e-4, 0.5};
   for (int j = 0; j < 2; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(coupled_sink_law);
+    struct Probe probe = law_probe(coupled_sink_law);
     struct RateIntegratorSettings settings = adaptive_settings(tolerances[j]);
     struct AttemptLog log;
     struct Run run;
@@ -1010,11 +766,10 @@ static int test_source_driven_sink_stays_non_negative(void) {
     system.delta[0] = 2.0;
     const int a = add_entry(&system, 0, 0, 1.0);
     const int b = add_entry(&system, 0, 0, 0.0);
-    add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, b, 0, 0.0);
-    add_flux(&system, RATE_FLUX_SINK, a, RATE_END_EXTERNAL, 1, 0.0);
+    add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, b, 0, -1, 0.0);
+    add_flux(&system, RATE_FLUX_SINK, a, RATE_END_EXTERNAL, 1, -1, 0.0);
     attach_log(&settings, &log, &system);
     probe.k_of_state = coupled_sink_k;
-    probe.skip_evaluation = 2; /* the first-step probe: A0 = 1 has a non-zero weight */
     log.probe = &probe;
     TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "source-driven sink must integrate");
@@ -1045,7 +800,7 @@ static int test_three_sinks_order_independent(void) {
   int64_t reference_steps = 0;
   for (int p = 0; p < 6; p++) {
     struct System system;
-    struct LawProbe probe = law_probe(constant_law);
+    struct Probe probe = law_probe(NULL);
     const struct RateIntegratorSettings settings = adaptive_settings(1e-4);
     struct Run run;
     build_three_sinks(&system, orders[p]);
@@ -1076,7 +831,7 @@ static int test_stiff_pair_steps_at_positivity_bound(void) {
   const double rates[] = {1e3, 1e4};
   for (int j = 0; j < 2; j++) {
     struct System system;
-    struct LawProbe probe = law_probe(constant_law);
+    struct Probe probe = law_probe(NULL);
     const struct RateIntegratorSettings settings = adaptive_settings(1e-6);
     struct Run run;
     build_stiff_pair(&system, rates[j]);
@@ -1108,8 +863,8 @@ static void build_first_interval(struct System *system) {
   const int a = add_entry(system, 0, 0, 1.0);
   const int b = add_entry(system, 0, 0, 0.0);
   const int s = add_entry(system, 1, 0, 0.5);
-  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, 0.8);
-  add_flux(system, RATE_FLUX_INTERNAL, s, a, 1, 1.7);
+  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, -1, 0.8);
+  add_flux(system, RATE_FLUX_INTERNAL, s, a, 1, -1, 1.7);
 }
 
 /** Segment 2: the satellite row is gone; row 0 holds A and B, A to B at 0.3. */
@@ -1118,7 +873,7 @@ static void build_second_interval(struct System *system, double a_start, double 
   system->delta[0] = 1.0;
   const int a = add_entry(system, 0, 0, a_start);
   const int b = add_entry(system, 0, 0, b_start);
-  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, 0.3);
+  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, -1, 0.3);
 }
 
 /**
@@ -1137,7 +892,7 @@ static int test_two_intervals_piecewise_closed_form(void) {
   const double b2 = 1.5 - a2;
   const double bound = 10.0 * 1e-10;
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   const struct RateIntegratorSettings settings = adaptive_settings(1e-10);
   struct Run run;
 
@@ -1168,7 +923,7 @@ static int test_two_intervals_piecewise_closed_form(void) {
  */
 static int test_second_interval_depends_on_start_only(void) {
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   struct RateIntegratorSettings settings = adaptive_settings(1e-10);
   static struct AttemptLog chained_log;
   static struct AttemptLog fresh_log;
@@ -1214,7 +969,7 @@ static int test_star_closed_form(void) {
   for (int j = 0; j < 2; j++) {
     struct System system;
     static struct Star star;
-    struct LawProbe probe = law_probe(constant_law);
+    struct Probe probe = law_probe(NULL);
     const struct RateIntegratorSettings settings = adaptive_settings(1e-8);
     struct Run run;
     build_star(&system, &star, satellites[j], seeds[j]);
@@ -1243,7 +998,7 @@ static int test_star_repeatable(void) {
   static struct AttemptLog repeat_log;
   static struct Star star;
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   struct RateIntegratorSettings settings = adaptive_settings(1e-8);
   struct Run run;
   double first_end[MAX_ENTRIES];
@@ -1291,7 +1046,7 @@ static int test_star_repeatable(void) {
  */
 static int test_zero_delta_row(void) {
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   const struct RateIntegratorSettings settings = adaptive_settings(1e-8);
   struct Run run;
   system_init(&system, 2, 1);
@@ -1301,9 +1056,9 @@ static int test_zero_delta_row(void) {
   const int q = add_entry(&system, 0, 0, 0.2);
   const int r = add_entry(&system, 0, 0, 0.0);
   const int d = add_entry(&system, 1, 0, 1.0);
-  add_flux(&system, RATE_FLUX_INTERNAL, p, q, 0, 2.0);
-  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, p, 1, 0.5);
-  add_flux(&system, RATE_FLUX_INTERNAL, d, r, 2, 1.1);
+  add_flux(&system, RATE_FLUX_INTERNAL, p, q, 0, -1, 2.0);
+  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, p, 1, -1, 0.5);
+  add_flux(&system, RATE_FLUX_INTERNAL, d, r, 2, -1, 1.1);
   const double p_start = system.state[p];
   const double q_start = system.state[q];
   TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
@@ -1353,7 +1108,7 @@ static int test_zero_delta_row(void) {
  */
 static int test_all_empty_component_single_step(void) {
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   const struct RateIntegratorSettings settings = adaptive_settings(1e-4);
   struct Run run;
   system_init(&system, 1, 1);
@@ -1361,15 +1116,15 @@ static int test_all_empty_component_single_step(void) {
   const int a = add_entry(&system, 0, 0, 0.0);
   const int b = add_entry(&system, 0, 0, 0.0);
   const int c = add_entry(&system, 0, 0, 0.0);
-  add_flux(&system, RATE_FLUX_INTERNAL, a, b, 0, 1.0);
-  add_flux(&system, RATE_FLUX_INTERNAL, b, c, 1, 2.0);
-  add_flux(&system, RATE_FLUX_INTERNAL, c, a, 2, 0.5);
-  add_flux(&system, RATE_FLUX_SINK, c, RATE_END_EXTERNAL, 3, 0.7);
+  add_flux(&system, RATE_FLUX_INTERNAL, a, b, 0, -1, 1.0);
+  add_flux(&system, RATE_FLUX_INTERNAL, b, c, 1, -1, 2.0);
+  add_flux(&system, RATE_FLUX_INTERNAL, c, a, 2, -1, 0.5);
+  add_flux(&system, RATE_FLUX_SINK, c, RATE_END_EXTERNAL, 3, -1, 0.7);
   TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
   TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "all-empty component must integrate");
   TEST_ASSERT_EQUAL(run.outcome.stats.accepted_steps, 1, "exactly one accepted step");
   TEST_ASSERT_EQUAL(run.outcome.stats.rejected_steps, 0, "no rejected step");
-  TEST_ASSERT_EQUAL(probe.evaluations, 4, "four law evaluations: no first-step probe");
+  TEST_ASSERT_EQUAL(run.evaluations, 4, "four law evaluations: the start and three stages");
   for (int i = 0; i < system.num_entries; i++) {
     TEST_ASSERT(system.state[i] == 0.0, "every entry must stay exactly zero");
   }
@@ -1387,15 +1142,15 @@ static int test_empty_reservoir_fed_by_source(void) {
   const double s = 0.4;
   const double k = 1.3;
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
+  struct Probe probe = law_probe(NULL);
   struct RateIntegratorSettings settings = adaptive_settings(1e-8);
   struct AttemptLog log;
   struct Run run;
   system_init(&system, 1, 1);
   system.delta[0] = 3.0;
   const int r = add_entry(&system, 0, 0, 0.0);
-  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, s);
-  add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 1, k);
+  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, -1, s);
+  add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 1, -1, k);
   attach_log(&settings, &log, &system);
   TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
   TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "empty reservoir with a source must integrate");
@@ -1408,7 +1163,7 @@ static int test_empty_reservoir_fed_by_source(void) {
   TEST_ASSERT(!log.bad_step, "every step must be finite and positive");
   TEST_ASSERT(log.weighed > 0, "the error estimate must have run");
   TEST_ASSERT(!log.bad_weight, "every smallest weight must be finite and positive");
-  TEST_ASSERT(!log.non_finite_error, "every error norm must be finite");
+  TEST_ASSERT(!log.non_finite, "every step, weight, error norm and committed entry must be finite");
   return TEST_PASS;
 }
 
@@ -1416,249 +1171,279 @@ static int test_empty_reservoir_fed_by_source(void) {
  * Failures
  * ------------------------------------------------------------------------- */
 
-/** One failing segment: how to build it and what its record must name. */
+/* Rules for a failure record's tau and step (struct FailureCase). */
+enum TimeRule {
+  TIME_EXACT,     /* tau and step equal the case's values */
+  TIME_WITHIN,    /* tau in [tau, tau_high] and step in (0, step] */
+  TIME_SPANS_HALF /* the failing step spans tau = 0.5, where the law turns bad: tau <= 0.5 <= */
+                  /* tau + step */
+};
+
+/** One failing segment: how to build it and what its record must hold. */
 struct FailureCase {
   const char *name;
-  void (*build)(struct System *system, struct LawProbe *probe,
+  void (*build)(struct System *system, struct Probe *probe,
                 struct RateIntegratorSettings *settings);
   enum RateCause cause;
   int entry; /* expected failure.entry, -1 for none */
   int flux;  /* expected failure.flux, -1 for none */
+  int row;   /* expected failure.row, -1 for none */
+  enum TimeRule time_rule;
+  double tau;          /* TIME_EXACT: tau; TIME_WITHIN: the lowest tau */
+  double tau_high;     /* TIME_WITHIN: the highest tau */
+  double step;         /* TIME_EXACT: the step; TIME_WITHIN: the largest step */
+  int64_t accepted;    /* expected accepted steps, or -1 when not pinned */
+  int64_t rejected;    /* expected rejected steps, or -1 when not pinned */
+  int64_t evaluations; /* expected law evaluations, or -1 when not pinned */
 };
 
-static void build_inverse_sink(struct System *system, struct LawProbe *probe,
+/**
+ * A sink at c / x, c = 1, x0 = 0.6, Delta = 1: the exact x empties at tau = 0.6,
+ * where the coefficient diverges. x0 is no dyadic fraction, so no stage lands
+ * on x = 0 exactly.
+ */
+static void build_inverse_sink(struct System *system, struct Probe *probe,
                                struct RateIntegratorSettings *settings) {
   system_init(system, 1, 1);
   system->delta[0] = 1.0;
-  const int x = add_entry(system, 0, 0, 0.5);
-  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, 0.0);
+  const int x = add_entry(system, 0, 0, 0.6);
+  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, 0.0);
   *probe = law_probe(inverse_law);
   *settings = adaptive_settings(1e-4);
 }
 
+/** An empty donor whose sink law returns +infinity there (c / x at x = 0), Delta = 1. */
+static void build_empty_donor(struct System *system, struct Probe *probe,
+                              struct RateIntegratorSettings *settings) {
+  system_init(system, 1, 1);
+  system->delta[0] = 1.0;
+  const int x = add_entry(system, 0, 0, 0.0);
+  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, 0.0);
+  *probe = law_probe(empty_donor_law);
+  *settings = adaptive_settings(1e-4);
+}
+
 /** A (1) to B at 1, B to a sink at 0.5, Delta = 1; the sink's law turns bad at tau = 0.5. */
-static void build_faulty(struct System *system, struct LawProbe *probe,
+static void build_faulty(struct System *system, struct Probe *probe,
                          struct RateIntegratorSettings *settings, double bad_value) {
   system_init(system, 1, 1);
   system->delta[0] = 1.0;
   const int a = add_entry(system, 0, 0, 1.0);
   const int b = add_entry(system, 0, 0, 0.0);
-  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, 1.0);
-  add_flux(system, RATE_FLUX_SINK, b, RATE_END_EXTERNAL, 1, 0.5);
+  add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, -1, 1.0);
+  add_flux(system, RATE_FLUX_SINK, b, RATE_END_EXTERNAL, 1, -1, 0.5);
   *probe = law_probe(faulty_law);
   probe->bad_value = bad_value;
   *settings = adaptive_settings(1e-4);
 }
 
-static void build_nan_coefficient(struct System *system, struct LawProbe *probe,
+static void build_nan_coefficient(struct System *system, struct Probe *probe,
                                   struct RateIntegratorSettings *settings) {
   build_faulty(system, probe, settings, NAN);
 }
 
-static void build_negative_coefficient(struct System *system, struct LawProbe *probe,
+static void build_negative_coefficient(struct System *system, struct Probe *probe,
                                        struct RateIntegratorSettings *settings) {
   build_faulty(system, probe, settings, -1.0);
 }
 
-static void build_infinite_coefficient(struct System *system, struct LawProbe *probe,
+static void build_infinite_coefficient(struct System *system, struct Probe *probe,
                                        struct RateIntegratorSettings *settings) {
   build_faulty(system, probe, settings, INFINITY);
 }
 
-static void build_failing_law(struct System *system, struct LawProbe *probe,
+static void build_failing_law(struct System *system, struct Probe *probe,
                               struct RateIntegratorSettings *settings) {
   build_faulty(system, probe, settings, 0.0);
   probe->fill = failing_law;
 }
 
-static void build_budgeted_stiff_pair(struct System *system, struct LawProbe *probe,
+static void build_budgeted_stiff_pair(struct System *system, struct Probe *probe,
                                       struct RateIntegratorSettings *settings) {
   build_stiff_pair(system, 1e6);
-  *probe = law_probe(constant_law);
+  *probe = law_probe(NULL);
   *settings = adaptive_settings(1e-6);
   settings->max_steps_per_segment = 1000;
 }
 
-static void build_divergent_sink(struct System *system, struct LawProbe *probe,
+static void build_divergent_sink(struct System *system, struct Probe *probe,
                                  struct RateIntegratorSettings *settings) {
   system_init(system, 1, 1);
   system->delta[0] = 1.0;
   const int x = add_entry(system, 0, 0, 0.5);
-  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, x, 0, 0.0);
-  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 1, 0.0);
+  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, x, 0, -1, 0.0);
+  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 1, -1, 0.0);
   *probe = law_probe(divergent_law);
   *settings = adaptive_settings(1e-4);
   settings->max_rejections_per_step = 5;
 }
 
 /** The linear chain over Delta = 20 in one fixed step: step * K_max = 20 > C. */
-static void build_fixed_step_too_long(struct System *system, struct LawProbe *probe,
+static void build_fixed_step_too_long(struct System *system, struct Probe *probe,
                                       struct RateIntegratorSettings *settings) {
   build_chain(system, 20.0);
-  *probe = law_probe(constant_law);
+  *probe = law_probe(NULL);
   *settings = fixed_settings(1);
 }
 
-/** One entry at 1 with a constant sink at 1e15, Delta = 1: the cap 1.8e-15 is below 2^-46. */
-static void build_immediate_underflow(struct System *system, struct LawProbe *probe,
-                                      struct RateIntegratorSettings *settings) {
+/**
+ * One entry at 1 with a constant sink at 1e15, Delta = 1: the starting step is the
+ * positivity cap 0.9 * 2 / 1e15 = 1.8e-15 itself, below 2^-46.
+ */
+static void build_underflow_at_cap(struct System *system, struct Probe *probe,
+                                   struct RateIntegratorSettings *settings) {
   system_init(system, 1, 1);
   system->delta[0] = 1.0;
   const int x = add_entry(system, 0, 0, 1.0);
-  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, 1e15);
-  *probe = law_probe(constant_law);
+  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, 1e15);
+  *probe = law_probe(NULL);
   *settings = adaptive_settings(1e-4);
 }
 
 /** The linear chain over Delta = 2 asked for 2000 fixed steps against a budget of 1000. */
-static void build_fixed_step_budget(struct System *system, struct LawProbe *probe,
+static void build_fixed_step_budget(struct System *system, struct Probe *probe,
                                     struct RateIntegratorSettings *settings) {
   build_chain(system, 2.0);
-  *probe = law_probe(constant_law);
+  *probe = law_probe(NULL);
   *settings = fixed_settings(2000);
   settings->max_steps_per_segment = 1000;
 }
 
 /**
- * A reservoir at 1 fed by a constant source of 1, Delta = 1, a budget of two
- * attempts: no outflow (no K_max limiter, no cap clamp) and an error estimate of
- * exactly zero, so no step meets a limiter before the budget runs out.
+ * A reservoir at 1 fed by a constant source of 1, Delta = 1, with a budget of no
+ * attempts: no outflow (no K_max limiter, no cap clamp), so the first attempt
+ * is refused before any limiter is met.
  */
-static void build_unclamped_budget(struct System *system, struct LawProbe *probe,
+static void build_unclamped_budget(struct System *system, struct Probe *probe,
                                    struct RateIntegratorSettings *settings) {
   system_init(system, 1, 1);
   system->delta[0] = 1.0;
   const int r = add_entry(system, 0, 0, 1.0);
-  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, 1.0);
-  *probe = law_probe(constant_law);
+  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, -1, 1.0);
+  *probe = law_probe(NULL);
   *settings = adaptive_settings(1e-4);
-  settings->max_steps_per_segment = 2;
+  settings->max_steps_per_segment = 0;
 }
 
+/* The stiff pair's cap at its start: 0.9 * 2 / K_max, K_max = Delta (kb + 1) = 3 (1e6 + 1). */
+#define STIFF_BUDGET_CAP ((0.9 * 2.0) / (3.0 * (1e6 + 1.0)))
+
 static const struct FailureCase FAILURE_CASES[] = {
-    {"sink at c/x", build_inverse_sink, RATE_CAUSE_STEP_UNDERFLOW, 0, 0},
-    {"NaN coefficient", build_nan_coefficient, RATE_CAUSE_BAD_COEFFICIENT, 1, 1},
-    {"negative coefficient", build_negative_coefficient, RATE_CAUSE_BAD_COEFFICIENT, 1, 1},
-    {"infinite coefficient", build_infinite_coefficient, RATE_CAUSE_BAD_COEFFICIENT, 1, 1},
-    {"stiff pair 1e6, 1000 steps", build_budgeted_stiff_pair, RATE_CAUSE_STEP_BUDGET, 1, 1},
-    {"divergent sink, 5 rejections", build_divergent_sink, RATE_CAUSE_REJECTION_BUDGET, 0, 1},
-    {"fixed step past the bound", build_fixed_step_too_long, RATE_CAUSE_REJECTION_BUDGET, 0, 0},
-    {"law reports failure", build_failing_law, RATE_CAUSE_BAD_COEFFICIENT, -1, -1},
-    {"immediate underflow at the cap", build_immediate_underflow, RATE_CAUSE_STEP_UNDERFLOW, 0, 0},
-    {"fixed steps past the budget", build_fixed_step_budget, RATE_CAUSE_STEP_BUDGET, 0, 0},
-    {"budget, source only, no clamp", build_unclamped_budget, RATE_CAUSE_STEP_BUDGET, 0, 0},
+    {"sink at c/x", build_inverse_sink, RATE_CAUSE_STEP_UNDERFLOW, 0, 0, 0, TIME_WITHIN, 0.0, 0.6,
+     0x1p-46, -1, -1, -1},
+    {"empty donor, infinite law", build_empty_donor, RATE_CAUSE_BAD_COEFFICIENT, 0, 0, 0,
+     TIME_EXACT, 0.0, 0.0, 0.0, 0, 0, 1},
+    {"NaN coefficient", build_nan_coefficient, RATE_CAUSE_BAD_COEFFICIENT, 1, 1, 0, TIME_SPANS_HALF,
+     0.0, 0.0, 0.0, -1, -1, -1},
+    {"negative coefficient", build_negative_coefficient, RATE_CAUSE_BAD_COEFFICIENT, 1, 1, 0,
+     TIME_SPANS_HALF, 0.0, 0.0, 0.0, -1, -1, -1},
+    {"infinite coefficient", build_infinite_coefficient, RATE_CAUSE_BAD_COEFFICIENT, 1, 1, 0,
+     TIME_SPANS_HALF, 0.0, 0.0, 0.0, -1, -1, -1},
+    {"stiff pair 1e6, 1000 steps", build_budgeted_stiff_pair, RATE_CAUSE_STEP_BUDGET, 1, 1, 0,
+     TIME_WITHIN, 0x1p-46, 1.0, STIFF_BUDGET_CAP, -1, -1, -1},
+    {"divergent sink, 5 rejections", build_divergent_sink, RATE_CAUSE_REJECTION_BUDGET, 0, 1, 0,
+     TIME_WITHIN, 0.0, 0.0, 1.0, 0, 5, -1},
+    {"fixed step past the bound", build_fixed_step_too_long, RATE_CAUSE_REJECTION_BUDGET, 0, 0, 0,
+     TIME_EXACT, 0.0, 0.0, 1.0, 0, 1, 1},
+    {"law reports failure", build_failing_law, RATE_CAUSE_BAD_COEFFICIENT, -1, -1, -1,
+     TIME_SPANS_HALF, 0.0, 0.0, 0.0, -1, -1, -1},
+    {"underflow at the positivity cap", build_underflow_at_cap, RATE_CAUSE_STEP_UNDERFLOW, 0, 0, 0,
+     TIME_EXACT, 0.0, 0.0, (0.9 * 2.0) / 1e15, 0, 0, 1},
+    {"fixed steps past the budget", build_fixed_step_budget, RATE_CAUSE_STEP_BUDGET, 0, 0, 0,
+     TIME_EXACT, 0.5, 0.0, 1.0 / 2000.0, 1000, 0, 4001},
+    {"budget of no attempts", build_unclamped_budget, RATE_CAUSE_STEP_BUDGET, 0, 0, 0, TIME_EXACT,
+     0.0, 0.0, 1.0, 0, 0, 1},
 };
 #define NUM_FAILURE_CASES ((int)(sizeof(FAILURE_CASES) / sizeof(FAILURE_CASES[0])))
 
-/** Run one failure case; @p unchanged reports whether the state and amounts kept their bytes. */
-static int run_failure_case(const struct FailureCase *fc, struct Run *run, int *unchanged) {
-  struct System system;
-  struct LawProbe probe;
-  struct RateIntegratorSettings settings;
-  fc->build(&system, &probe, &settings);
-  double before[MAX_ENTRIES];
-  memcpy(before, system.state, sizeof(before));
-  for (int t = 0; t < MAX_TOTALS; t++) {
-    run->source[t] = -1.0;
-    run->sink[t] = -1.0;
+/** Whether @p failure's tau and step meet @p fc's time rule. */
+static int failure_time_holds(const struct FailureCase *fc, const struct RateFailure *failure) {
+  switch (fc->time_rule) {
+  case TIME_EXACT:
+    return failure->tau == fc->tau && failure->step == fc->step;
+  case TIME_WITHIN:
+    return failure->tau >= fc->tau && failure->tau <= fc->tau_high && failure->step > 0.0 &&
+           failure->step <= fc->step;
+  case TIME_SPANS_HALF:
+    return failure->tau <= 0.5 && failure->tau + failure->step >= 0.5;
   }
-  if (run_segment(&system, &probe, &settings, run) != 0) {
-    return 1;
-  }
-  *unchanged = memcmp(before, system.state, sizeof(before)) == 0;
-  for (int t = 0; t < system.num_totals; t++) {
-    if (run->source[t] != -1.0 || run->sink[t] != -1.0) {
-      *unchanged = 0;
-    }
-  }
-  printf("\n  %-30s cause=%-16s entry=%d flux=%d row=%d tau=%.6f step=%.3e accepted=%lld", fc->name,
-         rate_cause_name(run->cause), run->outcome.failure.entry, run->outcome.failure.flux,
-         run->outcome.failure.row, run->outcome.failure.tau, run->outcome.failure.step,
-         (long long)run->outcome.stats.accepted_steps);
   return 0;
 }
 
-/** The failure case named @p name, or NULL. */
-static const struct FailureCase *failure_case(const char *name) {
-  for (int c = 0; c < NUM_FAILURE_CASES; c++) {
-    if (strcmp(FAILURE_CASES[c].name, name) == 0) {
-      return &FAILURE_CASES[c];
-    }
-  }
-  return NULL;
+/** Whether a pinned count @p expected (-1: not pinned) equals @p actual. */
+static int count_holds(int64_t expected, int64_t actual) {
+  return expected < 0 || expected == actual;
 }
 
 /**
- * @test    The named failures: step_underflow, bad_coefficient (NaN, negative,
- *          infinite) and step_budget
+ * @test    Every named failure returns its cause, names its place and leaves the state unchanged
  *
- * A sink at c/x (x0 = 0.5, c = 1, Delta = 1) empties x in finite time, so its
- * steps shrink below 2^-46; the faulty laws turn bad at tau = 0.5; the stiff
- * pair at kf = kb = 1e6 needs about 1.7e6 steps against a budget of 1000.
- * Expected: each returns its cause, and its record carries the same cause.
+ * The causes: step_underflow (a sink at c / x, x0 = 0.6, emptied in finite
+ * time; a positivity cap below 2^-46 at the start), bad_coefficient (a law
+ * that returns +infinity at an empty donor at its first evaluation; NaN,
+ * negative and infinite coefficients from tau = 0.5 on; a law that reports
+ * failure), step_budget (the stiff pair at 1e6 against 1000 attempts, about
+ * 1.7e6 needed; 2000 fixed steps against 1000; no attempt allowed) and
+ * rejection_budget (a sink whose coefficient diverges above 0.5 against 5
+ * retries; one fixed step past the positivity bound). Expected for each: the
+ * returned cause and the record's cause; the state, the external amounts and
+ * the flux amounts bitwise unchanged; the record's entry, flux and row; its tau
+ * and step by the case's rule (a law that turns bad at tau = 0.5 fails in the
+ * step spanning it); the accepted and rejected steps and law evaluations the
+ * case pins; and the outcome's law_evaluations equal to the evaluations the
+ * law itself counted. The cases that meet no limiter before failing (the
+ * underflow at the cap, the fixed-step budget, the budget of no attempts) name
+ * the start-of-step limiter: the K_max entry and its outflow, or the
+ * largest-rate flux and its recipient.
  */
-static int test_failure_causes(void) {
-  const char *const names[] = {"sink at c/x", "NaN coefficient", "negative coefficient",
-                               "infinite coefficient", "stiff pair 1e6, 1000 steps"};
-  for (int n = 0; n < 5; n++) {
-    const struct FailureCase *fc = failure_case(names[n]);
-    struct Run run;
-    int unchanged = 0;
-    TEST_ASSERT(fc != NULL, "every named failure case must exist");
-    TEST_ASSERT(run_failure_case(fc, &run, &unchanged) == 0, "workspace too small");
-    TEST_ASSERT(run.cause == fc->cause, fc->name);
-    TEST_ASSERT(run.outcome.failure.cause == fc->cause,
-                "the failure record must carry the returned cause");
-  }
-  printf("\n");
-  return TEST_PASS;
-}
-
-/**
- * @test    A sink whose coefficient diverges above 0.5 exhausts the rejection budget
- *
- * A reservoir at 0.5 fed by a source of 1, sink 10/(x - 0.5) above 0.5 and zero
- * at or below it, Delta = 1, max_rejections_per_step 5: the stage coefficient
- * grows as the step shrinks, so every retry is rejected. Expected: cause
- * rejection_budget, carried by the record.
- */
-static int test_rejection_budget(void) {
-  const struct FailureCase *fc = failure_case("divergent sink, 5 rejections");
-  struct Run run;
-  int unchanged = 0;
-  TEST_ASSERT(fc != NULL, "the divergent-sink failure case must exist");
-  TEST_ASSERT(run_failure_case(fc, &run, &unchanged) == 0, "workspace too small");
-  TEST_ASSERT(run.cause == RATE_CAUSE_REJECTION_BUDGET, "the divergent sink must fail with "
-                                                        "rejection_budget");
-  TEST_ASSERT(run.outcome.failure.cause == RATE_CAUSE_REJECTION_BUDGET,
-              "the failure record must carry rejection_budget");
-  printf("\n");
-  return TEST_PASS;
-}
-
-/**
- * @test    Every failure leaves the caller's state unchanged and names its place
- *
- * Expected for every failure case: the state and the external-amount arrays
- * keep their bytes, and the record names the cause, the entry and the flux
- * (none for a law that reports failure as a whole). The last three cases meet
- * no limiter before failing (an underflow at the first step, a fixed-step
- * budget, a budget with no outflow and a zero error estimate), so they name the
- * start-of-step limiter: the K_max entry and its outflow, or the largest-rate
- * flux and its recipient.
- */
-static int test_failures_leave_state_unchanged(void) {
+static int test_failure_table(void) {
   for (int c = 0; c < NUM_FAILURE_CASES; c++) {
     const struct FailureCase *fc = &FAILURE_CASES[c];
-    struct Run run;
-    int unchanged = 0;
-    TEST_ASSERT(run_failure_case(fc, &run, &unchanged) == 0, "workspace too small");
+    struct System system;
+    struct Probe probe;
+    struct RateIntegratorSettings settings;
+    static struct Run run;
+    fc->build(&system, &probe, &settings);
+    double before[MAX_ENTRIES];
+    memcpy(before, system.state, sizeof(before));
+    for (int t = 0; t < MAX_TOTALS; t++) {
+      run.source[t] = -1.0;
+      run.sink[t] = -1.0;
+    }
+    for (int f = 0; f < MAX_FLUXES; f++) {
+      run.flux[f] = -1.0;
+    }
+    TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
+    const struct RateFailure *failure = &run.outcome.failure;
+    const struct RateStepStats *stats = &run.outcome.stats;
+    int unchanged = memcmp(before, system.state, sizeof(before)) == 0;
+    for (int t = 0; t < system.num_totals; t++) {
+      unchanged &= (run.source[t] == -1.0 && run.sink[t] == -1.0);
+    }
+    for (int f = 0; f < system.num_fluxes; f++) {
+      unchanged &= (run.flux[f] == -1.0);
+    }
+    printf("\n  %-31s cause=%-16s entry=%d flux=%d row=%d tau=%.6f step=%.3e accepted=%lld "
+           "rejected=%lld evaluations=%lld",
+           fc->name, rate_cause_name(run.cause), failure->entry, failure->flux, failure->row,
+           failure->tau, failure->step, (long long)stats->accepted_steps,
+           (long long)stats->rejected_steps, (long long)stats->law_evaluations);
     TEST_ASSERT(run.cause == fc->cause, fc->name);
-    TEST_ASSERT(unchanged, "a failure must leave the state and amounts bitwise unchanged");
-    TEST_ASSERT_EQUAL(run.outcome.failure.entry, fc->entry, "the record must name the entry");
-    TEST_ASSERT_EQUAL(run.outcome.failure.flux, fc->flux, "the record must name the flux");
-    TEST_ASSERT(strcmp(rate_cause_name(run.outcome.failure.cause), "none") != 0,
-                "the record must name a cause");
+    TEST_ASSERT(failure->cause == fc->cause, "the failure record must carry the returned cause");
+    TEST_ASSERT(unchanged, "a failure must leave the state and every amount bitwise unchanged");
+    TEST_ASSERT_EQUAL(failure->entry, fc->entry, "the record must name the entry");
+    TEST_ASSERT_EQUAL(failure->flux, fc->flux, "the record must name the flux");
+    TEST_ASSERT_EQUAL(failure->row, fc->row, "the record must name the row");
+    TEST_ASSERT(failure_time_holds(fc, failure), "the record's tau and step break the case's rule");
+    TEST_ASSERT(count_holds(fc->accepted, stats->accepted_steps), "accepted steps");
+    TEST_ASSERT(count_holds(fc->rejected, stats->rejected_steps), "rejected steps");
+    TEST_ASSERT(count_holds(fc->evaluations, stats->law_evaluations), "law evaluations");
+    TEST_ASSERT(stats->law_evaluations == run.evaluations,
+                "the outcome must count every law evaluation the law saw");
+    if (fc->cause == RATE_CAUSE_STEP_BUDGET && fc->time_rule == TIME_WITHIN) {
+      TEST_ASSERT(stats->accepted_steps + stats->rejected_steps == 1000,
+                  "an adaptive step budget is spent on exactly its attempts");
+    }
   }
   printf("\n");
   return TEST_PASS;
@@ -1680,7 +1465,7 @@ static int test_failures_leave_state_unchanged(void) {
 static int test_many_external_fluxes_close_within_tolerance(void) {
   for (int sinks = 0; sinks <= 1; sinks++) {
     static struct System system;
-    struct LawProbe probe = law_probe(sinks ? constant_outflow_law : constant_law);
+    struct Probe probe = law_probe(sinks ? constant_outflow_law : NULL);
     const struct RateIntegratorSettings settings = fixed_settings(10000);
     struct Run run;
     system_init(&system, 1000, 1);
@@ -1690,12 +1475,12 @@ static int test_many_external_fluxes_close_within_tolerance(void) {
     }
     for (int r = 0; r < 1000; r++) {
       if (sinks) {
-        add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 0, 1.0);
+        add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 0, -1, 1.0);
       } else {
-        add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, 1.0);
+        add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, -1, 1.0);
       }
       if (r + 1 < 1000) {
-        add_flux(&system, RATE_FLUX_INTERNAL, r, r + 1, 1, 1e-12);
+        add_flux(&system, RATE_FLUX_INTERNAL, r, r + 1, 1, -1, 1e-12);
       }
     }
     double start_total = 0.0;
@@ -1723,87 +1508,280 @@ static int test_many_external_fluxes_close_within_tolerance(void) {
   return TEST_PASS;
 }
 
+/* ---------------------------------------------------------------------------
+ * The starting step, the controller and landing
+ * ------------------------------------------------------------------------- */
+
+/** One entry x0 = 1 drained by a constant sink at @p k, Delta = 1 (K = k). */
+static void build_decay(struct System *system, double k) {
+  system_init(system, 1, 1);
+  system->delta[0] = 1.0;
+  const int x = add_entry(system, 0, 0, 1.0);
+  add_flux(system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, k);
+}
+
 /**
- * @test    The first step follows the Hairer and Wanner rule adapted to the norm
+ * @test    A segment starts at min(1, cap); the controller sizes the next step; the last stretches
  *
- * One entry x0 = 1 drained at k = 3, Delta = 1 (K = 3), default tolerances. The
- * linear law gives F0 = -K x0 and, at the probe x1 = x0 + h0 F0, F1 = -K (1 -
- * h0 K) x0. With w0 = atol S + rtol |x0| (S = x0), d0 = |x0|/w0, d1 = |F0|/w0,
- * h0 = min(0.01 d0/d1, 1, sigma/K), d2 = |F1 - F0|/w0/h0 and h1 = (0.01 /
- * max(d1, d2))^(1/3), the first step is min(100 h0, h1, 1, sigma C/K), here h1
- * (d2 > d1 since K > 1). Expected: the first attempt's step equals this closed
- * form bit for bit, each formula evaluated in the order the rule states it.
+ * build_decay(), so the cap is 0.9 * 2 / k. (a) k = 1, default tolerances: the
+ * cap 1.8 exceeds the segment, so the first attempt's step is 1. (b) k = 4,
+ * relative tolerance 0.08: the first attempt's step is the cap 0.45 exactly
+ * (the remainder 1 is more than twice it, so landing leaves it); its reported
+ * error norm lies in (1, 2), so it is rejected, and the second attempt's step
+ * is the first times 0.9 err^(-1/3), from that norm, bit for bit, the factor
+ * within (0.2, 5) so the clamp does not decide it; the last attempt follows two
+ * accepted steps and its remainder lies within (h, 1.1 h] of the step h the
+ * controller proposes from the attempt before it, so its step is that
+ * remainder exactly (without the stretch it would be split into two steps).
+ * Neither case evaluates the law beyond its stages: 1 evaluation at the start,
+ * 3 per attempt and 1 per accepted step that does not end the segment.
  */
-static int test_first_step_follows_its_rule(void) {
-  const double x0 = 1.0;
-  const double k = 3.0;
-  const double delta = 1.0;
-  const double rtol = 1e-4;
-  const double atol = 1e-7;
-  const double big_k = delta * k;
-  const double w0 = atol * x0 + rtol * x0;
-  const double f0 = -big_k * x0;
-  const double d0 = fabs(x0) / w0;
-  const double d1 = fabs(f0) / w0;
-  const double h0 = fmin(fmin(0.01 * d0 / d1, 1.0), 0.9 / big_k);
-  const double f1 = -big_k * (1.0 - h0 * big_k) * x0;
-  const double d2 = fabs(f1 - f0) / w0 / h0;
-  const double h1 = cbrt(0.01 / fmax(d1, d2));
-  const double expected = fmin(fmin(100.0 * h0, h1), fmin(1.0, 0.9 * 2.0 / big_k));
-  struct System system;
-  struct LawProbe probe = law_probe(constant_law);
-  struct RateIntegratorSettings settings = adaptive_settings(rtol);
+static int test_start_controller_and_landing(void) {
   static struct AttemptLog log;
+  struct System system;
   struct Run run;
-  system_init(&system, 1, 1);
-  system.delta[0] = delta;
-  const int x = add_entry(&system, 0, 0, x0);
-  add_flux(&system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, k);
+
+  build_decay(&system, 1.0);
+  struct RateIntegratorSettings settings = adaptive_settings(1e-4);
   attach_log(&settings, &log, &system);
-  TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
-  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the decay must integrate");
-  printf("\n  first step d1=%.6e d2=%.6e h0=%.6e h1=%.10e expected=%.17g got=%.17g\n", d1, d2, h0,
-         h1, expected, log.step[0]);
-  TEST_ASSERT(d2 > d1 && expected == h1, "the case must exercise d2 and h1");
-  TEST_ASSERT(log.count > 0 && log.tau[0] == 0.0, "the first attempt starts at tau = 0");
-  TEST_ASSERT(log.step[0] == expected, "the first step must equal the rule's closed form exactly");
+  TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the decay at k = 1 must integrate");
+  printf("\n  k = 1: first step %.17g, %lld attempts, %lld evaluations", log.step[0],
+         (long long)log.count, (long long)run.outcome.stats.law_evaluations);
+  TEST_ASSERT(log.count > 0 && log.tau[0] == 0.0 && log.step[0] == 1.0,
+              "a cap above the segment must start the segment at step 1");
+  TEST_ASSERT(run.outcome.stats.law_evaluations ==
+                  1 + 3 * log.count + (run.outcome.stats.accepted_steps - 1),
+              "the start must cost no law evaluation beyond the stages");
+
+  build_decay(&system, 4.0);
+  settings = adaptive_settings(0.08);
+  attach_log(&settings, &log, &system);
+  TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the decay at k = 4 must integrate");
+  const int64_t n = log.count;
+  const double cap = (0.9 * 2.0) / 4.0;
+  const double factor = controller_factor(log.error_norm[0]);
+  const double second = log.step[0] * factor;
+  const double proposal = (n >= 3) ? log.step[n - 2] * controller_factor(log.error_norm[n - 2]) : 0;
+  const double remainder = (n >= 1) ? 1.0 - log.tau[n - 1] : 0.0;
+  printf(
+      "\n  k = 4: first step %.17g (cap %.17g), err %.6f, second step %.17g (first x %.6f = "
+      "%.17g); %lld attempts; landing remainder / proposal %.6f (in (1, 1.1]), %lld evaluations\n",
+      log.step[0], cap, log.error_norm[0], log.step[1], factor, second, (long long)n,
+      remainder / proposal, (long long)run.outcome.stats.law_evaluations);
+  TEST_ASSERT(n >= 4 && n <= LOG_CAPACITY, "the k = 4 case takes at least four attempts");
+  TEST_ASSERT(log.tau[0] == 0.0 && log.step[0] == cap, "the first step must be the cap exactly");
+  TEST_ASSERT(!log.accepted[0] && log.error_norm[0] > 1.0 && log.error_norm[0] < 2.0,
+              "the first attempt must be rejected with an error norm in (1, 2)");
+  TEST_ASSERT(factor > 0.2 && factor < 5.0, "the case must leave the controller unclamped");
+  TEST_ASSERT(log.tau[1] == 0.0 && log.step[1] == second,
+              "the second step must be the first times 0.9 err^(-1/3) of the reported err");
+  TEST_ASSERT(log.accepted[n - 3] && log.accepted[n - 2] && log.accepted[n - 1],
+              "the landing must follow two accepted steps");
+  TEST_ASSERT(remainder > proposal && remainder <= 1.1 * proposal,
+              "the remainder must lie within (h, 1.1 h] of the proposal");
+  TEST_ASSERT(log.step[n - 1] == remainder, "the last step must be the remainder 1 - tau exactly");
+  TEST_ASSERT(run.outcome.stats.positivity_rejections == 0 &&
+                  run.outcome.stats.law_evaluations ==
+                      1 + 3 * log.count + (run.outcome.stats.accepted_steps - 1),
+              "the start must cost no law evaluation beyond the stages");
+  return TEST_PASS;
+}
+
+/* ---------------------------------------------------------------------------
+ * Near-empty and draining states
+ * ------------------------------------------------------------------------- */
+
+/* The near-empty starts: exactly empty, then from the smallest normal scale up. */
+static const double NEAR_EMPTY_STARTS[] = {0.0, 1e-300, 1e-20, 1e-14, 1e-8};
+#define NUM_NEAR_EMPTY_STARTS ((int)(sizeof(NEAR_EMPTY_STARTS) / sizeof(NEAR_EMPTY_STARTS[0])))
+
+/** (a) One reservoir at @p x0 with a source of 0.4 and a sink at 1.3, Delta = 3. */
+static void build_fed_reservoir(struct System *system, double x0) {
+  system_init(system, 1, 1);
+  system->delta[0] = 3.0;
+  const int r = add_entry(system, 0, 0, x0);
+  add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, -1, 0.4);
+  add_flux(system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 1, -1, 1.3);
+}
+
+/** (a)'s closed form: R = s/k + (x0 - s/k) e^(-k Delta). */
+static double fed_reservoir_exact(double x0) {
+  const double equilibrium = 0.4 / 1.3;
+  return equilibrium + (x0 - equilibrium) * exp(-1.3 * 3.0);
+}
+
+/**
+ * (b) A central (row 0, Delta 1.25) holding H = @p x0 and Cold = 0, H to Cold at
+ * 0.9, fed by a satellite (row 1, Delta 1) holding G = 0.8 and Stars = 0, G to
+ * the central's H at 1.7 (cross-record) and to its own Stars at 0.6.
+ */
+static void build_fed_central(struct System *system, double x0) {
+  system_init(system, 2, 1);
+  system->delta[0] = 1.25;
+  system->delta[1] = 1.0;
+  const int h = add_entry(system, 0, 0, x0);
+  const int cold = add_entry(system, 0, 0, 0.0);
+  const int gas = add_entry(system, 1, 0, 0.8);
+  const int stars = add_entry(system, 1, 0, 0.0);
+  add_flux(system, RATE_FLUX_INTERNAL, h, cold, 0, -1, 0.9);
+  add_flux(system, RATE_FLUX_INTERNAL, gas, stars, 1, -1, 0.6);
+  add_flux(system, RATE_FLUX_INTERNAL, gas, h, 2, -1, 1.7);
+}
+
+/** (b)'s closed form: H = x0 e^(-b) + Delta_s k_s G0 (e^(-a) - e^(-b)) / (b - a). */
+static double fed_central_exact(double x0) {
+  const double a = (1.7 + 0.6) * 1.0;
+  const double b = 0.9 * 1.25;
+  return x0 * exp(-b) + 1.0 * 1.7 * 0.8 * (exp(-a) - exp(-b)) / (b - a);
+}
+
+/** Drift of total 0 against tol_F (L = 2, a literal: every entry here has at most two terms). */
+static double closure_ratio(const struct System *system, const double *start,
+                            const struct Run *run) {
+  double start_sum = 0.0;
+  double end_sum = 0.0;
+  double magnitude = 0.0;
+  for (int i = 0; i < system->num_entries; i++) {
+    start_sum += start[i];
+    end_sum += system->state[i];
+    magnitude += fabs(start[i]);
+  }
+  const double drift = fabs((end_sum - start_sum) - (run->source[0] - run->sink[0]));
+  const double tolerance =
+      closure_tolerance(2, run->outcome.stats.accepted_steps, system->num_entries, magnitude,
+                        run->source[0], run->sink[0]);
+  return (drift == 0.0) ? 0.0 : drift / tolerance;
+}
+
+/**
+ * @test    A nearly empty reservoir fed from outside integrates from tau = 0, under both schemes
+ *
+ * For starts 0, 1e-300, 1e-20, 1e-14 and 1e-8: (a) one reservoir with a source
+ * of 0.4 and a sink at 1.3, Delta = 3; (b) a satellite feeding a central whose
+ * receiving reservoir holds the start (build_fed_central()). Explicit scheme at
+ * relative tolerance 1e-8: the closed form within 10 times the relative
+ * tolerance. Implicit scheme at the default tolerances: the closed form within
+ * 1e-2 relative (the first-order scheme measured 1.5e-3). Expected for every
+ * row: the segment completes (no step_underflow), meets its closed form, and
+ * its total closes within tol_F.
+ */
+static int test_near_empty_start(void) {
+  int failures = 0;
+  for (int implicit = 0; implicit <= 1; implicit++) {
+    for (int problem = 0; problem < 2; problem++) {
+      for (int j = 0; j < NUM_NEAR_EMPTY_STARTS; j++) {
+        const double x0 = NEAR_EMPTY_STARTS[j];
+        struct System system;
+        struct RateIntegratorSettings settings;
+        rate_integrator_default_settings(&settings);
+        if (implicit) {
+          settings.scheme = RATE_SCHEME_IMPLICIT;
+        } else {
+          settings = adaptive_settings(1e-8);
+        }
+        if (problem == 0) {
+          build_fed_reservoir(&system, x0);
+        } else {
+          build_fed_central(&system, x0);
+        }
+        double start[MAX_ENTRIES];
+        memcpy(start, system.state, sizeof(start));
+        static struct Run run;
+        TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
+        const double exact = (problem == 0) ? fed_reservoir_exact(x0) : fed_central_exact(x0);
+        const double relative = fabs(system.state[0] - exact) / exact;
+        const double bound = implicit ? 1e-2 : 10.0 * 1e-8 / exact;
+        const double closure = closure_ratio(&system, start, &run);
+        const int ok = run.cause == RATE_CAUSE_NONE && relative <= bound && closure <= 1.0;
+        printf("\n  %s (%c) x0=%-7.0e %-14s accepted=%-4lld rejected=%-3lld relative error=%.3e "
+               "(<=%.1e) closure=%.3f of tol_F%s",
+               implicit ? "implicit" : "explicit", problem == 0 ? 'a' : 'b', x0,
+               rate_cause_name(run.cause), (long long)run.outcome.stats.accepted_steps,
+               (long long)run.outcome.stats.rejected_steps, relative, bound, closure,
+               ok ? "" : "  <- FAILED");
+        failures += !ok;
+      }
+    }
+  }
+  printf("\n");
+  TEST_ASSERT(failures == 0, "a near-empty start failed, missed its closed form or did not close");
   return TEST_PASS;
 }
 
 /**
- * @test    The last step is stretched by up to 10% to land on tau = 1
+ * @test    A draining sink is followed to an absolute accuracy, not through every decade
  *
- * A reservoir at 1 fed by a constant source of 32.25, Delta = 1, relative
- * tolerance 0.5. A constant rate has an error estimate of exactly zero, so each
- * step grows by the factor 5; the first step is 100 h0 = x0 / (Delta s) =
- * 1/32.25 (below h1 at this tolerance), so the third proposal is 25/32.25
- * against a remainder of 26.25/32.25, 1.05 times the proposal. Expected: three
- * attempts, the remainder within (h, 1.1 h] of the proposal h = 5 times the
- * previous step, and the last step equal to the remainder 1 - tau exactly
- * (without the stretch the remainder would be split into two steps).
+ * One entry x0 = 1 drained at 700, Delta = 1, default tolerances: the content
+ * falls through about 300 decades. Its weight's scale keeps the segment-start
+ * total, so the error control asks for absolute accuracy once the content is
+ * small, and the positivity cap governs the steps. Expected: the segment
+ * completes in at most 1.25 N_pos accepted steps, N_pos = ceil(700 / (0.9 x
+ * 2)) = 389 (the content's relative error followed through every decade took
+ * 5,748); the end within 10 x absolute_tolerance of e^-700; the total closes
+ * within tol_F (L = 1).
  */
-static int test_landing_stretch_reaches_the_end(void) {
+static int test_draining_sink(void) {
   struct System system;
-  struct LawProbe probe = law_probe(constant_law);
-  struct RateIntegratorSettings settings = adaptive_settings(0.5);
-  static struct AttemptLog log;
   struct Run run;
-  system_init(&system, 1, 1);
-  system.delta[0] = 1.0;
-  const int r = add_entry(&system, 0, 0, 1.0);
-  add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, 32.25);
-  attach_log(&settings, &log, &system);
-  TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
-  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the source must integrate");
-  TEST_ASSERT_EQUAL(log.count, 3, "three attempts: two growing steps and a stretched landing");
-  TEST_ASSERT(log.accepted[0] && log.accepted[1] && log.accepted[2], "every attempt is accepted");
-  const double remainder = 1.0 - log.tau[2];
-  const double proposal = 5.0 * log.step[1];
-  printf("\n  landing steps=%.10f %.10f %.10f remainder/proposal=%.6f (in (1, 1.1])\n", log.step[0],
-         log.step[1], log.step[2], remainder / proposal);
-  TEST_ASSERT(remainder > proposal && remainder <= 1.1 * proposal,
-              "the remainder must lie within (h, 1.1 h] of the proposal");
-  TEST_ASSERT(log.step[2] == remainder, "the last step must be the remainder 1 - tau exactly");
+  build_decay(&system, 700.0);
+  struct RateIntegratorSettings settings;
+  rate_integrator_default_settings(&settings);
+  TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
+  const double n_pos = ceil(700.0 / (0.9 * 2.0));
+  const double accepted = (double)run.outcome.stats.accepted_steps;
+  const double error = fabs(system.state[0] - exp(-700.0));
+  const double drift = fabs((system.state[0] - 1.0) + run.sink[0]);
+  const double tolerance =
+      closure_tolerance(1, run.outcome.stats.accepted_steps, 1, 1.0, 0.0, run.sink[0]);
+  printf("\n  sink k Delta = 700: %s, accepted=%.0f (<= 1.25 N_pos = %.2f), rejected=%lld, "
+         "|x - e^-700|=%.3e (<= 1e-6), closure %.3e (<= %.3e)\n",
+         rate_cause_name(run.cause), accepted, 1.25 * n_pos,
+         (long long)run.outcome.stats.rejected_steps, error, drift, tolerance);
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the draining sink must integrate");
+  TEST_ASSERT(accepted <= 1.25 * n_pos, "the draining sink must take at most 1.25 N_pos steps");
+  TEST_ASSERT(system.state[0] >= 0.0 && error <= 10.0 * 1e-7,
+              "the drained entry must end within 10 absolute tolerances of e^-700");
+  TEST_ASSERT(drift <= tolerance, "the drained total must close within tol_F");
+  return TEST_PASS;
+}
+
+/* ---------------------------------------------------------------------------
+ * Time dependence
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @test    A time-dependent law converges at third order at fixed steps
+ *
+ * x' = -Delta (1 + 3 tau^2) x in tau units (a sink whose coefficient is 1 +
+ * 3 tau^2), Delta = 2, x0 = 1, so x(1) = e^(-2 Delta). Every other proving
+ * problem is autonomous, so this case alone pins the stage times: a stage
+ * evaluated at the wrong tau drops the order. Expected: |p - 3| <= 0.2 on each
+ * halving from n = 16 to 256.
+ */
+static int test_time_dependent_fixed_steps_third_order(void) {
+  const int64_t steps[] = {16, 32, 64, 128, 256};
+  double error[5];
+  for (int j = 0; j < 5; j++) {
+    struct System system;
+    struct Probe probe = law_probe(time_dependent_law);
+    const struct RateIntegratorSettings settings = fixed_settings(steps[j]);
+    struct Run run;
+    build_decay(&system, 0.0);
+    system.delta[0] = 2.0;
+    TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
+    TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the time-dependent decay must integrate");
+    error[j] = fabs(system.state[0] - exp(-2.0 * 2.0));
+    printf("\n  time-dependent n=%-4lld error=%.4e", (long long)steps[j], error[j]);
+  }
+  for (int j = 0; j < 4; j++) {
+    const double p = log2(error[j] / error[j + 1]);
+    printf("\n  time-dependent halving %lld->%lld p=%.4f (|p-3|<=0.2)", (long long)steps[j],
+           (long long)steps[j + 1], p);
+    TEST_ASSERT(fabs(p - 3.0) <= 0.2, "the time-dependent order must be 3 within 0.2");
+  }
+  printf("\n");
   return TEST_PASS;
 }
 
@@ -1830,8 +1808,6 @@ int main(void) {
   TEST_RUN(test_two_intervals_piecewise_closed_form);
   TEST_RUN(test_second_interval_depends_on_start_only);
   TEST_RUN(test_star_closed_form);
-  TEST_RUN(test_failure_causes);
-  TEST_RUN(test_rejection_budget);
   TEST_RUN(test_source_driven_sink_stays_non_negative);
   TEST_RUN(test_mixed_delta_cross_record_conserves);
   TEST_RUN(test_zero_delta_row);
@@ -1839,10 +1815,12 @@ int main(void) {
   TEST_RUN(test_empty_reservoir_fed_by_source);
   TEST_RUN(test_closure_check_detects_imbalance);
   TEST_RUN(test_star_repeatable);
-  TEST_RUN(test_failures_leave_state_unchanged);
+  TEST_RUN(test_failure_table);
   TEST_RUN(test_many_external_fluxes_close_within_tolerance);
-  TEST_RUN(test_first_step_follows_its_rule);
-  TEST_RUN(test_landing_stretch_reaches_the_end);
+  TEST_RUN(test_start_controller_and_landing);
+  TEST_RUN(test_near_empty_start);
+  TEST_RUN(test_draining_sink);
+  TEST_RUN(test_time_dependent_fixed_steps_third_order);
 
   TEST_SUMMARY();
   return TEST_RESULT();

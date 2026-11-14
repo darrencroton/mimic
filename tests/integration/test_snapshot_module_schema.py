@@ -132,12 +132,12 @@ def generator_distribution_errors(module):
 def struct_member_names(body):
     """Return every member name declared in a C struct body, in declaration order.
 
-    Comments are stripped, the body is split on ';' and each declaration on its top-level
-    commas, and each declarator's identifier is taken (pointer stars, array brackets and a
-    function-pointer '(*name)(...)' form handled), so any added member appears in the result
+    Block and line comments are stripped, the body is split on ';' and each declaration on its
+    top-level commas, and each declarator's identifier is taken (pointer stars, array brackets and
+    a function-pointer '(*name)(...)' form handled), so any added member appears in the result
     whatever its type spelling.
     """
-    code = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", body, flags=re.DOTALL)
     names = []
     for declaration in code.split(";"):
         declaration = " ".join(declaration.split())

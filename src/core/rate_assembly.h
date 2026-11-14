@@ -19,14 +19,16 @@
  *   reservoir table: an internal transfer runs between two reservoirs of one
  *   total; a sink leaves a reservoir; a source or slaved source enters a
  *   reservoir or a tracer; only a transfer into a record may go to the central;
- * - every observer names a property of kind observer and a transfer of its module;
+ * - every observer names a property of kind observer and a transfer of its module,
+ *   and no module observes one transfer into one property twice (the
+ *   property would receive the amount twice);
  * - transfer global indices are unique among the configured transfers;
  * - every slaved source's master is a transfer of a module configured in the
  *   phase, and is an internal transfer or a sink;
  * - the totals form no dependency cycle: a slaved source's recipient total
  *   depends on its master's donor total, and a tracer's total on its parent's;
  * - the settings (struct MimicRateIntegration) lie in their ranges (check_purity
- *   is 0 or 1).
+ *   is 0 or 1; max_rejections_per_step is at least RATE_MIN_REJECTIONS_PER_STEP).
  *
  * Domain. The whole FoF workspace is one component when a configured transfer
  * has to_record: central or a configured module declares reads_central;
@@ -36,20 +38,24 @@
  * A segment. The active rows are those with a galaxy and Type != 3, in
  * workspace order. A component's entries are, row by row (row index among its
  * active rows, then reservoir table index): one entry per reservoir and tracer
- * of the table, and one entry per configured observer of an observer property
- * (several observers of one property in global transfer order). Its fluxes are,
- * row by row, one per configured transfer in global transfer order, so the
- * entry and flux order is decision-free and never depends on run-file order,
- * registration order, IDs or pointers. Row r's segment length is
+ * of the table; an observer is not integrator state and has no entry. Its
+ * fluxes are, row by row, one per configured transfer in global transfer
+ * order, so the entry and flux order is decision-free and never depends on
+ * run-file order, registration order, IDs or pointers. Row r's segment length is
  * Delta_r = dT_r / num_substeps; a row carrying the first-snapshot sentinel
  * (SnapNum < 0 and dT <= 0) has Delta_r = 0, and any other row whose dT is not
- * positive and finite is fatal, naming the row.
+ * positive and finite is fatal, naming the row. The gather reads each row's
+ * reservoir and tracer fields as the start state; an entry that is negative or
+ * not finite is fatal before any law or step sees it, naming the phase, the
+ * snapshot and substep, the workspace row and its UniqueGalaxyID, the property
+ * and the value, and saying that the value was left before the segment, by a
+ * discrete phase or by initialisation. It is refused, never clamped.
  *
  * A law evaluation. Each active row has a scratch copy of its halo whose galaxy
  * pointer addresses a scratch copy of its galaxy, taken at segment start; at
  * every evaluation the reservoir and tracer fields of every row's scratch
  * galaxy are overwritten with the trial state (observer fields keep their
- * segment-start values, since observers are out of error control), and then each
+ * segment-start values, since an observer has no entry), and then each
  * configured module's law is called for each row, rows in order and modules by
  * name, with its coefficient slots zeroed. A module that declares reads_central
  * receives the central's scratch copy (at the same trial state) as
@@ -67,31 +73,41 @@
  * mismatch is fatal, naming the module and transfer, and writes the failure
  * file. With it off no law is evaluated beyond the integrator's own.
  *
- * Write-back. On success the reservoir, tracer and observer fields of each
- * row's galaxy take the end state (an observer property the sum of its
- * entries, the first of which started at the property's value); nothing else
- * of the scratch copies is written back. On failure the run ends through
- * FATAL_ERROR, naming the cause, the module and transfer, the row whose law it
- * is (and the entry's row when that differs), the entry and tau, and the
- * workspace is left as it was.
+ * Write-back. On success the reservoir and tracer fields of each row's galaxy
+ * take the end state, and each configured observer's property gains the amount
+ * its transfer moved on that row over the segment (the integrator's flux
+ * amount; several observers of one property add in global transfer order);
+ * nothing else of the scratch copies is written back. On failure the run ends
+ * through FATAL_ERROR and the workspace is left as it was. The message always
+ * names the cause and tau, and each of these only where the cause has it: the
+ * module and transfer (a law that returned non-zero is named by its module and
+ * return code), the galaxy (the workspace row whose law it is and its
+ * UniqueGalaxyID, with the entry's row as well when that differs) and the
+ * entry. A ledger failure names the total and, since it names no row, the
+ * component's row count and its first row's UniqueGalaxyID in place of a
+ * galaxy; a tracer_bound failure names the tracer, its total and the tracer's
+ * first source or slaved source when it has one. A field the failure does not
+ * name is left out of the message.
  *
  * Failure file. Before FATAL_ERROR, for a failed segment and a failed purity
  * probe alike, <output_directory>/rate_failure_task<N>.txt is written, N the
  * MPI task number (0 in a serial run); with no output directory configured, or
  * when the file cannot be written, a warning is logged and the failure still
- * ends the run. It is plain text: the run's rate settings; the cause (a
- * rate_cause_name(), or impure_law), module, transfer, tau and step; one line
- * per row with its workspace row, UniqueGalaxyID, Type, dT and segment length
- * Delta; one line per entry with the segment-start state (the integrator
- * leaves it untouched on a failure); and one line per row and transfer with
- * the coefficient of the failing law evaluation (the latest one), marked
- * not_evaluated where its law had not yet returned when the evaluation ended (a
- * law returned non-zero, or the probe failed mid-pass). A segment that failed
- * before any law ran (a segment of zero-length rows failing its closure
- * checks) says "no law was evaluated" in place of the coefficient lines. Every
- * floating-point value is a C99 hexadecimal float (%a), exact; a value that is
- * not finite also carries its bit pattern. The file is written only on a
- * failure; a later successful run into the same output directory does not
+ * ends the run. It is plain text: the build's version and git commit
+ * (mimic_version, git_commit), so a file left by an earlier build can be told
+ * apart; the phase, snapshot and substep, the law's base time (the module
+ * context's time, from which each row's RateContext.time is formed) and the
+ * redshift, so a time-dependent law can be replayed; the run's rate settings;
+ * the cause (a rate_cause_name(), or impure_law), module, transfer, tau and
+ * step; one line per row with its workspace row, UniqueGalaxyID, Type, dT and
+ * segment length Delta; one line per entry with the segment-start state (the
+ * integrator leaves it untouched on a failure); and one line per row and
+ * transfer with the coefficient of the failing law evaluation (the latest
+ * one), marked not_evaluated where its law had not yet returned when the
+ * evaluation ended (a law returned non-zero, or the probe failed mid-pass).
+ * Every floating-point value is a C99 hexadecimal float (%a), exact; a value
+ * that is not finite also carries its bit pattern. The file is written only on
+ * a failure; a later successful run into the same output directory does not
  * remove it.
  *
  * Step statistics. rate_assembly_run() adds every segment it integrates (one
@@ -109,13 +125,13 @@
  * result is the same for any task count, chunk count or driver; no
  * floating-point sum is kept.
  *
- * Memory. Everything a segment needs (the row, entry and flux tables, the
- * scratch rows, the latest coefficients, the purity probe's snapshots when it
- * is on, and the integrator's workspace) lives in one caller-owned
- * tracked MEM_UTILITY allocation (struct RateAssemblyScratch), grown to the
- * high water of the largest component and released by
- * rate_assembly_scratch_release(). The plan is one tracked MEM_UTILITY
- * allocation of its own, released by rate_assembly_plan_free().
+ * Memory. Everything a segment needs (the row, entry and flux tables, the flux
+ * amounts, the scratch rows, the purity probe's snapshots when it is on, and
+ * the integrator's workspace, which holds the latest coefficients a failure
+ * file reads) lives in one caller-owned tracked MEM_UTILITY allocation (struct
+ * RateAssemblyScratch), grown to the high water of the largest component and
+ * released by rate_assembly_scratch_release(). The plan is one tracked
+ * MEM_UTILITY allocation of its own, released by rate_assembly_plan_free().
  */
 
 #include <stdbool.h>
@@ -130,6 +146,22 @@ struct FoFWorkspace; /* fof_workspace.h */
 
 /** The startup plan of the rate phase (opaque; rate_assembly_plan_build()). */
 struct RateAssemblyPlan;
+
+/**
+ * The smallest max_rejections_per_step the run file and the plan accept. Every
+ * segment first tries the whole segment as one step, so a segment that needs a
+ * small step begins with consecutive rejections, each shrinking the step by a
+ * factor between 0.2 and 0.9; twenty at the fastest shrink take the whole
+ * segment down to the minimum step (0.2^20 < 2^-46), so a smaller budget could
+ * fail a segment before its step is small enough to be accepted.
+ */
+#define RATE_MIN_REJECTIONS_PER_STEP 20
+
+/** Why the minimum holds, as the refusals of a smaller value say it */
+#define RATE_MIN_REJECTIONS_PER_STEP_REASON                                                        \
+  "A segment first tries the whole segment as one step and reaches a small step through "          \
+  "consecutive rejections, each shrinking the step by a factor between 0.2 and 0.9; twenty at "    \
+  "the fastest shrink take it from the whole segment to the minimum step, 2^-46"
 
 /** Lowest and highest octave of the K_max histogram: bin [2^k, 2^(k+1)) for k in this range */
 #define RATE_STATS_K_MAX_MIN_EXPONENT (-64)
@@ -256,13 +288,6 @@ void rate_assembly_plan_transfer_record(const struct RateAssemblyPlan *plan, int
 /** @brief The scheme's name as the run file spells it: "explicit" or "implicit". */
 const char *rate_assembly_scheme_name(int scheme);
 
-/**
- * @brief   One sentence naming a scheme's method and its compile-time controller constants
- *
- * Recorded as RunProperties/RateIntegration's method attribute.
- */
-const char *rate_assembly_method_description(int scheme);
-
 /** @brief K_max histogram bin of a segment's K_max (zero, underflow, an octave or overflow). */
 int rate_statistics_k_max_bin(double k_max);
 
@@ -274,6 +299,20 @@ double rate_statistics_max_k_max(const struct RateStatistics *stats);
 
 /** @brief Log the one-line INFO_LOG summary of a run's merged statistics. */
 void rate_statistics_log_summary(const struct RateStatistics *stats);
+
+/**
+ * @brief   Append one item to a comma-separated list for a diagnostic
+ *
+ * Each item is written whole or not at all: an item that does not fit, with
+ * room kept for ", ...", ends the list with ", ..." (or "..." when it is the
+ * first) instead.
+ *
+ * @param   buffer  The list, NUL-terminated (empty before the first item)
+ * @param   size    Bytes of @p buffer, at least 8
+ * @param   used    The list's length; advanced past the item
+ * @return  true when the item was written; false when the list was ended instead
+ */
+bool rate_append_list_item(char *buffer, size_t size, size_t *used, const char *item);
 
 /** @brief Release the scratch and zero its descriptor (safe when empty). */
 void rate_assembly_scratch_release(struct RateAssemblyScratch *scratch);

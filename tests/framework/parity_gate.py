@@ -1302,7 +1302,8 @@ def head_worktree(
 class OutputRun:
     """A finished run's output directory, the path prefixes its files may embed, and the
     property-metadata digest its build generated (``build/generated/property_hash.txt`` of
-    the producing worktree), which its ``output_schema.json`` must carry as ``source_md5``.
+    the producing worktree; None or empty when unknown), which its ``output_schema.json`` must
+    carry as ``source_md5``.
     ``basename`` is the run's ``output_filename``, the stem of its master and partition files."""
 
     directory: Path
@@ -1608,7 +1609,8 @@ def schema_provenance_problem(
     ``simulations/micro-uchuu-ascii-horizontal/_tests/scientific/test_cross_format_identity.py``.
     The parsed contents must otherwise be equal (field order, descriptions, units and every
     other key included), and a side whose build digest is unknown (``OutputRun.source_md5`` is
-    None) or whose value differs from it is not accepted.
+    None or empty), whose schema has no ``source_md5`` or whose value differs from the digest is
+    not accepted.
     """
     try:
         before, after = json.loads(left), json.loads(right)
@@ -1618,9 +1620,12 @@ def schema_provenance_problem(
         return "content differs beyond source_md5 (not a JSON object on a side)"
     problems = []
     for label, schema, run in (("baseline", before, base), ("candidate", after, other)):
+        present = "source_md5" in schema
         value = schema.pop("source_md5", None)
-        if run.source_md5 is None:
+        if not run.source_md5:
             problems.append(f"the {label} has no known build digest")
+        elif not present:
+            problems.append(f"the {label} has no source_md5")
         elif value != run.source_md5:
             problems.append(f"the {label}'s source_md5 is not its build digest")
     if json.dumps(before, sort_keys=True) != json.dumps(after, sort_keys=True):

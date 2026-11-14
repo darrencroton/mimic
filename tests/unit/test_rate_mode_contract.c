@@ -28,6 +28,7 @@
 #include "../../core/module_registry.h"
 #include "framework/test_phase_config.h"
 #include "../../core/module_interface.h"
+#include "../../core/rate_integrator.h"
 #include "../../include/types.h"
 #include "../../include/globals.h"
 #include "../../util/error.h"
@@ -335,11 +336,11 @@ static void accepted_placement_body(const char *unused) {
   module_registry_add(&rate_module);
   MimicConfig.SubSteps = 1;
   MimicConfig.RateIntegration = (struct MimicRateIntegration){
-      .scheme = RATE_INTEGRATION_DEFAULT_SCHEME,
-      .relative_tolerance = RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
-      .absolute_tolerance = RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
-      .max_steps_per_segment = RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
-      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP};
+      .scheme = RATE_SCHEME_EXPLICIT,
+      .relative_tolerance = RATE_DEFAULT_RELATIVE_TOLERANCE,
+      .absolute_tolerance = RATE_DEFAULT_ABSOLUTE_TOLERANCE,
+      .max_steps_per_segment = RATE_DEFAULT_MAX_STEPS_PER_SEGMENT,
+      .max_rejections_per_step = RATE_DEFAULT_MAX_REJECTIONS_PER_STEP};
   test_phase_add(current_case->phase, current_case->module, PROCESSING_MODE_RATES);
   if (module_system_init() != 0 || init_calls != 1) {
     fprintf(stderr, "rate phase '%s' refused or init() count %d\n", current_case->phase,
@@ -398,7 +399,7 @@ int test_rate_mode_placement(void) {
 
 /**
  * @test    test_rate_context_as_a_module_sees_it
- * @brief   A rates callback can read every struct RateContext field it is handed
+ * @brief   A rates callback reads the struct RateContext it is handed (time, snapshot, central)
  *
  * The context here is hand-built and the callback is the test's own, so this
  * exercises no core path: whether the central is NULL or non-NULL is the

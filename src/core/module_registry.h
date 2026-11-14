@@ -299,16 +299,22 @@ size_t module_rate_scratch_bytes(void);
  * FoF phase. A dispatch unit is one full-halo module's call together with the
  * per-event consumers its events trigger, the commit of the records it created
  * and the safety dispatch after it; or the phase's by-galaxy pass as a whole.
- * A total changes when |after - before| exceeds 8u (n_F + 2) S_F, u = 2^-53,
- * n_F the larger of the total's entry counts before and after and S_F the
- * larger of its sums of magnitudes. A change in a full-halo unit is fatal,
- * naming the phase, the module and the total, unless that module, or a
- * per-event module configured in the phase that subscribes to an event it
- * emits, lists the total in changes_totals; a change in the by-galaxy pass is
- * fatal unless a by-galaxy module configured in the phase lists it. A covered
- * change is counted per total in the run's rate statistics. Changes made by a
- * post_snapshot module are outside the ledger. With no rate phase the hook is
- * never entered and no sum is computed.
+ * Nothing changes the workspace between units, so one unit's after-sums are
+ * the next unit's before-sums. A total left not finite (its sum or its sum of
+ * magnitudes) is fatal whatever the declarations, naming the phase, the unit
+ * and the total. A total changes when |after - before| exceeds
+ * max(8u (n_F + 2), 2^-40) S_F, u = 2^-53, n_F the larger of the total's entry
+ * counts before and after and S_F the larger of its sums of magnitudes; the
+ * floor keeps a conservative module's own rounding over many exchanges in one
+ * unit from reading as a change, so a change smaller than about 1e-12 of a
+ * total's magnitude within one unit is not detected. A change in a full-halo
+ * unit is fatal, naming the phase, the module and the total, unless that
+ * module, or a per-event module configured in the phase that subscribes to an
+ * event it emits, lists the total in changes_totals; a change in the by-galaxy
+ * pass is fatal unless a by-galaxy module configured in the phase lists it. A
+ * covered change is counted per total in the run's rate statistics. Changes
+ * made by a post_snapshot module are outside the ledger. With no rate phase the
+ * hook is never entered and no sum is computed.
  */
 
 struct RateAssemblyPlan; /* rate_assembly.h */

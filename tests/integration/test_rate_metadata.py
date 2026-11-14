@@ -27,6 +27,8 @@ Validates:
   - test_production_generation_has_no_rate_table: generation without
     MIMIC_TEST_BUILD (a dry run, writing nothing) registers no fixture and emits
     no rate table, and its rate header declares a count of zero
+  - test_rate_module_linkage_follows_the_build: a rate module's struct Module has
+    external linkage only when generating a test build
   - test_validator_resolves_master_for_one_module_path: validating one module path
     still resolves a slaved master another module declares
   - test_changes_totals_accepted_and_emitted: test_rate_jump's changes_totals passes both
@@ -364,6 +366,15 @@ def _observer_transfer_mapping(m, p):
     m["test_rate_formation"]["rates"]["observers"][0]["transfer"] = {"star_formation": 1}
 
 
+def _duplicate_observer(m, p):
+    observers = m["test_rate_formation"]["rates"]["observers"]
+    observers.append(copy.deepcopy(observers[0]))
+
+
+def _noop_transfer(m, p):
+    find_transfer(m, "test_rate_supply", "cooling")["to"] = "RateFixtureHot"
+
+
 REFUSALS = [
     ("both ends external", _both_external, "test_rate_supply", "infall", "both ends 'external'", 1),
     (
@@ -666,6 +677,22 @@ REFUSALS = [
         "this module does not declare",
         1,
     ),
+    (
+        "duplicate observer",
+        _duplicate_observer,
+        "test_rate_formation",
+        "star_formation",
+        "repeats an observer of property 'RateFixtureFormed' on transfer 'star_formation'",
+        1,
+    ),
+    (
+        "internal transfer into itself on the same record",
+        _noop_transfer,
+        "test_rate_supply",
+        "cooling",
+        "moves 'RateFixtureHot' into itself on the same record",
+        1,
+    ),
 ]
 
 
@@ -931,13 +958,14 @@ def run_validator_main(modules, extra_props, selected):
 
     Writes each module (keyed by directory name) with a placeholder source to a
     temporary directory, adds them to discovery and ``extra_props`` to the property
-    metadata (as galaxy properties), then validates the module ``selected`` alone,
-    so the single-module report filter applies.
+    metadata (as galaxy properties, in both loaders the validator reads), then
+    validates the module ``selected`` alone, so the single-module report filter applies.
     """
     galaxy_source = rel(model_property_files()[0])
     props = {name: {**prop, "source": galaxy_source} for name, prop in extra_props.items()}
     real_discover = validate_modules.discover_modules
     real_properties = validate_modules.load_property_metadata
+    real_galaxy_properties = validate_modules.load_galaxy_property_metadata
     real_argv = sys.argv
     with tempfile.TemporaryDirectory() as tmp:
         dirs = {}
@@ -951,6 +979,10 @@ def run_validator_main(modules, extra_props, selected):
             (path, validate_modules.load_module_metadata(path)) for path in dirs.values()
         ]
         validate_modules.load_property_metadata = lambda: {**real_properties(), **props}
+        validate_modules.load_galaxy_property_metadata = lambda: {
+            **real_galaxy_properties(),
+            **extra_props,
+        }
         try:
             sys.argv = ["validate_modules.py", str(dirs[selected])]
             output = io.StringIO()
@@ -960,6 +992,7 @@ def run_validator_main(modules, extra_props, selected):
         finally:
             validate_modules.discover_modules = real_discover
             validate_modules.load_property_metadata = real_properties
+            validate_modules.load_galaxy_property_metadata = real_galaxy_properties
             sys.argv = real_argv
 
 
@@ -1000,36 +1033,33 @@ def test_single_module_validation_of_an_unnamed_module():
 
 
 def test_tools_share_the_galaxy_property_view():
-    """Both tools' own property loaders give the rate rules the same galaxy properties.
+    """Both tools load the rate rules' galaxy properties through one function.
 
-    A transfer end naming a halo property (Mvir) then gets one identical refusal
-    from each tool.
+    The galaxy-only view excludes halo properties, so a transfer end naming one
+    (Mvir) gets one identical refusal from each tool.
     """
+    assert (
+        validate_modules.load_galaxy_property_metadata is load_galaxy_property_metadata
+    ), "the validator does not load galaxy properties through the generator's function"
     saved = os.environ.get("MIMIC_TEST_BUILD")
     os.environ["MIMIC_TEST_BUILD"] = "1"
     try:
-        generator_view = load_galaxy_property_metadata()
-        validator_view = validate_modules.galaxy_property_view(
-            validate_modules.load_property_metadata()
-        )
+        view = load_galaxy_property_metadata()
     finally:
         if saved is None:
             os.environ.pop("MIMIC_TEST_BUILD")
         else:
             os.environ["MIMIC_TEST_BUILD"] = saved
-    assert set(generator_view) == set(
-        validator_view
-    ), f"property views differ: {sorted(set(generator_view) ^ set(validator_view))}"
-    assert "Mvir" not in validator_view and "RateFixtureCold" in validator_view
+    assert "Mvir" not in view and "RateFixtureCold" in view
 
     modules = copy.deepcopy(fixture_modules())
     find_transfer(modules, "test_rate_supply", "cooling")["to"] = "Mvir"
-    gen = generator_errors(modules, generator_view)
-    val = validator_errors(modules, validator_view)
+    gen = generator_errors(modules, view)
+    val = validator_errors(modules, view)
     assert len(gen) == 1 and len(val) == 1, (gen, val)
     assert "'Mvir', which is not a declared galaxy property" in val[0][2], val
     assert gen[0] == f"{val[0][0]}/module_info.yaml: {val[0][2]}", (gen, val)
-    print("  ✓ identical galaxy property views and an identical refusal for a halo-property end")
+    print("  ✓ one galaxy property loader and an identical refusal for a halo-property end")
 
 
 def struct_block(text, module):
@@ -1054,6 +1084,35 @@ def test_reads_central_emitted():
         want = "true" if name == "test_rate_formation" else "false"
         assert f".reads_central = {want}" in struct_block(text, name), f"{name}: not {want}"
     print("  ✓ .reads_central = true only for the module declaring it")
+
+
+def test_rate_module_linkage_follows_the_build():
+    """A rate module's struct Module is external in a test build and static in production.
+
+    The unit tests read the fixtures' generated rate members through the external
+    symbol; a production build keeps every registration static.
+    """
+    no_events = {"producer_ids": {}, "emits": {}, "consumes": {}}
+    modules = list(fixture_modules().values())
+    saved = os.environ.get("MIMIC_TEST_BUILD")
+    try:
+        os.environ["MIMIC_TEST_BUILD"] = "1"
+        test_text = "\n".join(generate_module_struct_definitions(modules, no_events))
+        os.environ.pop("MIMIC_TEST_BUILD")
+        production_text = "\n".join(generate_module_struct_definitions(modules, no_events))
+    finally:
+        if saved is None:
+            os.environ.pop("MIMIC_TEST_BUILD", None)
+        else:
+            os.environ["MIMIC_TEST_BUILD"] = saved
+    for name in FIXTURES:
+        external = re.compile(rf"^struct Module {name}_module = \{{", re.M)
+        static = re.compile(rf"^static struct Module {name}_module = \{{", re.M)
+        assert external.search(test_text), f"{name}: not external in a test build"
+        assert not static.search(test_text), f"{name}: static in a test build"
+        assert static.search(production_text), f"{name}: not static in a production build"
+        assert not external.search(production_text), f"{name}: external in a production build"
+    print(f"  ✓ {len(FIXTURES)} rate modules external in a test build, static in production")
 
 
 def test_reserved_names_match_sources():
@@ -1209,6 +1268,7 @@ def main():
             test_single_module_validation_of_an_unnamed_module,
             test_tools_share_the_galaxy_property_view,
             test_reads_central_emitted,
+            test_rate_module_linkage_follows_the_build,
             test_reserved_names_match_sources,
             test_changes_totals_accepted_and_emitted,
             test_changes_totals_refusals,

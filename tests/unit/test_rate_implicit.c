@@ -4,31 +4,40 @@
  *
  * Validates: rate_integrate_segment() under RATE_SCHEME_IMPLICIT on hand-built
  * components: the block solve against a dense reference solve written here, on
- * random star components; non-negativity and closure at step x rate products up
- * to 1e16; scratch and work linear in the number of galaxies; flat step counts
- * on the stiff pair; first order on the linear chain and in the bimolecular
- * drift; the tracer bound and the tracer total's closure in the yield problem;
- * the ill-posed sink the explicit scheme fails on; non-finite step x rate
- * products; a tiny entry drained hard; canonical-order independence; and the
- * components the block solve refuses.
+ * random star components (one row of each at Delta = 0); non-negativity and
+ * closure at step x rate products up to 1e16; scratch and work linear in the
+ * number of galaxies; flat step counts on the stiff pair, from its slow
+ * manifold and from off it; a draining sink; first order on the linear chain,
+ * on a time-dependent law and in the bimolecular drift; the tracer bound and
+ * the tracer total's closure in the yield problem; the starting step, the
+ * twice-filtered error estimate and the controller, with no growth after a
+ * rejection; flux amounts and a self-transfer; the ill-posed sink the explicit
+ * scheme fails on; non-finite step x rate products; a tiny entry drained hard;
+ * canonical-order independence; and the components the block solve refuses.
  *
  * Every expected value comes from a closed form or a dense solve written in
  * this file, never from the integrator. Every system's values are literals
- * here; the random components come from the fixed-seed SplitMix64 generator
- * below. Times are in normalised segment time tau, so a row with segment length
- * Delta has evolved for t = Delta at tau = 1. The error of a problem is the
- * largest absolute difference between a computed entry and its closed form at
- * tau = 1. Unless a case says otherwise the absolute tolerance is 1e-3 times the
- * relative tolerance. L, in tol_F and the tracer bound, is the larger of the
- * most inflow plus outflow terms on one entry and the most reservoir and tracer
- * entries on one row (one galaxy's block); this file counts it itself. Each
- * case prints its measured figures beside their bounds.
+ * here; the random components come from the fixed-seed SplitMix64 generator of
+ * rate_test_support.h. Times are in normalised segment time tau, so a row with
+ * segment length Delta has evolved for t = Delta at tau = 1. The error of a
+ * problem is the largest absolute difference between a computed entry and its
+ * closed form at tau = 1. Unless a case says otherwise the absolute tolerance is
+ * 1e-3 times the relative tolerance. L, in tol_F and the tracer bound, is the
+ * larger of the most inflow plus outflow terms on one entry and the most
+ * reservoir and tracer entries on one row (one galaxy's block); this file
+ * counts it itself. Each case prints its measured figures beside their bounds.
  */
+
+#define MAX_ENTRIES 24576
+#define MAX_FLUXES 24576
+#define MAX_ROWS 10240
+#define WORKSPACE_DOUBLES (1 << 18)
 
 #include "../framework/test_framework.h"
 #include "../framework/child_capture.h"
 #include "../../src/core/rate_integrator.h"
 #include "../../src/util/error.h"
+#include "rate_test_support.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -41,289 +50,54 @@
 static int passed = 0;
 static int failed = 0;
 
-/* u = 2^-53, the unit roundoff of IEEE binary64. */
-#define UNIT_ROUNDOFF 0x1p-53
-
-#define MAX_ENTRIES 24576
-#define MAX_FLUXES 24576
-#define MAX_ROWS 10240
-#define MAX_TOTALS 4
 #define MAX_DENSE 128
-#define LOG_CAPACITY 4096
 
 /* The star of the scratch bound: satellites, and the scratch it must fit, per galaxy. */
 #define STAR_SATELLITES 10000
 #define STAR_BYTES_PER_GALAXY 1024
 
 /* ---------------------------------------------------------------------------
- * Hand-built systems
+ * Laws (rate_test_support.h, struct Probe): each overwrites the coefficients it
+ * owns after the constant coefficients are set
  * ------------------------------------------------------------------------- */
-
-/** A component under construction, its state, and the constant coefficient of each flux. */
-struct System {
-  struct RateEntry entries[MAX_ENTRIES];
-  struct RateFlux fluxes[MAX_FLUXES];
-  double delta[MAX_ROWS];
-  double state[MAX_ENTRIES];
-  double coefficient[MAX_FLUXES];
-  int num_entries;
-  int num_fluxes;
-  int num_rows;
-  int num_totals;
-  int row; /* the row add_entry() puts new entries on */
-};
-
-/** Start an empty system with @p num_totals totals; add_row() opens its first row. */
-static void system_init(struct System *system, int num_totals) {
-  system->num_entries = 0;
-  system->num_fluxes = 0;
-  system->num_rows = 0;
-  system->num_totals = num_totals;
-  system->row = -1;
-}
-
-/** Add a row with segment length @p delta; later entries go on it. */
-static int add_row(struct System *system, double delta) {
-  const int row = system->num_rows++;
-  system->delta[row] = delta;
-  system->row = row;
-  return row;
-}
-
-static int add_entry(struct System *system, enum RateEntryKind kind, int total, int link,
-                     double content) {
-  const int index = system->num_entries++;
-  system->entries[index].row = system->row;
-  system->entries[index].total = total;
-  system->entries[index].kind = kind;
-  system->entries[index].parent = (kind == RATE_ENTRY_TRACER) ? link : -1;
-  system->entries[index].flux = (kind == RATE_ENTRY_OBSERVER) ? link : -1;
-  system->state[index] = content;
-  return index;
-}
-
-static int add_reservoir(struct System *system, int total, double content) {
-  return add_entry(system, RATE_ENTRY_RESERVOIR, total, -1, content);
-}
-
-static int add_tracer(struct System *system, int total, int parent, double content) {
-  return add_entry(system, RATE_ENTRY_TRACER, total, parent, content);
-}
-
-static int add_observer(struct System *system, int flux) {
-  return add_entry(system, RATE_ENTRY_OBSERVER, 0, flux, 0.0);
-}
-
-static int add_flux(struct System *system, enum RateFluxKind kind, int from, int to,
-                    int global_index, int master, double coefficient) {
-  const int index = system->num_fluxes++;
-  system->fluxes[index].kind = kind;
-  system->fluxes[index].from = from;
-  system->fluxes[index].to = to;
-  system->fluxes[index].global_index = global_index;
-  system->fluxes[index].master = master;
-  system->coefficient[index] = coefficient;
-  return index;
-}
-
-static struct RateComponent component_of(const struct System *system) {
-  const struct RateComponent component = {
-      .entries = system->entries,
-      .num_entries = system->num_entries,
-      .fluxes = system->fluxes,
-      .num_fluxes = system->num_fluxes,
-      .row_delta = system->delta,
-      .num_rows = system->num_rows,
-      .num_totals = system->num_totals,
-  };
-  return component;
-}
-
-/* ---------------------------------------------------------------------------
- * Laws, with a probe that sees every state the integrator evaluates them at
- * ------------------------------------------------------------------------- */
-
-/** A state-dependent law: overwrites the coefficients it owns after the constants are set. */
-typedef void (*LawFill)(const struct System *system, const double *x, double *k);
-
-struct Probe {
-  const struct System *system;
-  LawFill fill;        /* NULL: the constant coefficients alone */
-  int64_t evaluations; /* law evaluations seen */
-  double min_state;    /* smallest reservoir or tracer entry any law was evaluated at */
-  int non_finite;      /* a law was evaluated at a reservoir or tracer entry not finite */
-};
-
-static int probed_law(void *data, double tau, const double *state, double *coefficients) {
-  struct Probe *probe = data;
-  const struct System *system = probe->system;
-  (void)tau;
-  probe->evaluations++;
-  for (int i = 0; i < system->num_entries; i++) {
-    if (system->entries[i].kind == RATE_ENTRY_OBSERVER) {
-      continue;
-    }
-    probe->min_state = (state[i] < probe->min_state) ? state[i] : probe->min_state;
-    probe->non_finite |= !isfinite(state[i]);
-  }
-  for (int f = 0; f < system->num_fluxes; f++) {
-    coefficients[f] = system->coefficient[f];
-  }
-  if (probe->fill != NULL) {
-    probe->fill(system, state, coefficients);
-  }
-  return 0;
-}
 
 /** Bimolecular: A to C at 2 B, B to C at 2 A (fluxes 0 and 1). */
-static void bimolecular_law(const struct System *system, const double *x, double *k) {
-  (void)system;
+static int bimolecular_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)probe;
+  (void)tau;
   k[0] = 2.0 * x[1];
   k[1] = 2.0 * x[0];
+  return 0;
 }
 
 /** A sink at c / x with c = 1 (flux 0): a constant outflow that empties x at t = x0. */
-static void inverse_law(const struct System *system, const double *x, double *k) {
-  (void)system;
+static int inverse_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)probe;
+  (void)tau;
   k[0] = 1.0 / x[0];
-}
-
-/* ---------------------------------------------------------------------------
- * Attempt log (RateIntegratorSettings.on_attempt)
- * ------------------------------------------------------------------------- */
-
-/* Entries of the committed states the log keeps for the first two accepted steps. */
-#define KEPT_ENTRIES 8
-
-struct AttemptLog {
-  const struct System *system;
-  int64_t count;
-  double tau[LOG_CAPACITY];
-  double step[LOG_CAPACITY];
-  int accepted[LOG_CAPACITY];
-  double error_norm[LOG_CAPACITY];
-  double min_committed; /* smallest reservoir or tracer entry of any committed state */
-  int non_finite;       /* a committed entry that was not finite */
-  int watched[2];       /* declared flux indices whose committed amounts are summed, or -1 */
-  double sum[2];        /* sum of the watched fluxes' committed amounts, in step order */
-  int kept;             /* accepted steps whose committed state is kept below (at most 2) */
-  double kept_step[2];
-  double kept_state[2][KEPT_ENTRIES];
-};
-
-static void log_attempt(void *data, const struct RateAttempt *attempt) {
-  struct AttemptLog *log = data;
-  if (log->count < LOG_CAPACITY) {
-    log->tau[log->count] = attempt->tau;
-    log->step[log->count] = attempt->step;
-    log->accepted[log->count] = attempt->accepted;
-    log->error_norm[log->count] = attempt->error_norm;
-  }
-  log->count++;
-  if (!attempt->accepted) {
-    return;
-  }
-  for (int w = 0; w < 2; w++) {
-    if (log->watched[w] >= 0) {
-      log->sum[w] += attempt->amounts[log->watched[w]];
-    }
-  }
-  if (log->kept < 2 && log->system->num_entries <= KEPT_ENTRIES) {
-    log->kept_step[log->kept] = attempt->step;
-    memcpy(log->kept_state[log->kept], attempt->state,
-           (size_t)log->system->num_entries * sizeof(double));
-    log->kept++;
-  }
-  for (int i = 0; i < log->system->num_entries; i++) {
-    if (log->system->entries[i].kind == RATE_ENTRY_OBSERVER) {
-      continue;
-    }
-    if (!isfinite(attempt->state[i])) {
-      log->non_finite = 1;
-    }
-    if (attempt->state[i] < log->min_committed) {
-      log->min_committed = attempt->state[i];
-    }
-  }
-}
-
-static void attach_log(struct RateIntegratorSettings *settings, struct AttemptLog *log,
-                       const struct System *system) {
-  memset(log, 0, sizeof(*log));
-  log->system = system;
-  log->min_committed = INFINITY;
-  log->watched[0] = -1;
-  log->watched[1] = -1;
-  settings->on_attempt = log_attempt;
-  settings->attempt_data = log;
-}
-
-/** True when two logs hold the same attempt sequence, bit for bit. */
-static int same_sequence(const struct AttemptLog *a, const struct AttemptLog *b) {
-  if (a->count != b->count || a->count > LOG_CAPACITY) {
-    return 0;
-  }
-  const size_t n = (size_t)a->count;
-  return memcmp(a->tau, b->tau, n * sizeof(double)) == 0 &&
-         memcmp(a->step, b->step, n * sizeof(double)) == 0 &&
-         memcmp(a->accepted, b->accepted, n * sizeof(int)) == 0;
-}
-
-/* ---------------------------------------------------------------------------
- * Running a segment
- * ------------------------------------------------------------------------- */
-
-/* The caller-owned workspace every case but the large star integrates in. */
-static double workspace[1 << 18];
-
-static struct RateIntegratorSettings implicit_settings(double relative_tolerance) {
-  struct RateIntegratorSettings settings;
-  rate_integrator_default_settings(&settings);
-  settings.scheme = RATE_SCHEME_IMPLICIT;
-  settings.relative_tolerance = relative_tolerance;
-  settings.absolute_tolerance = 1e-3 * relative_tolerance;
-  return settings;
-}
-
-static struct RateIntegratorSettings implicit_fixed_settings(int64_t steps) {
-  struct RateIntegratorSettings settings;
-  rate_integrator_default_settings(&settings);
-  settings.scheme = RATE_SCHEME_IMPLICIT;
-  settings.fixed_steps = steps;
-  return settings;
-}
-
-struct Run {
-  enum RateCause cause;
-  struct RateSegmentOutcome outcome;
-  double source[MAX_TOTALS];
-  double sink[MAX_TOTALS];
-  int64_t evaluations; /* law evaluations the probe saw */
-  double min_state;    /* smallest reservoir or tracer entry a law saw */
-  int non_finite;      /* a law saw a reservoir or tracer entry not finite */
-};
-
-/** Integrate @p system's state in place in @p buffer; returns 1 when the buffer is too small. */
-static int run_segment_in(struct System *system, LawFill fill,
-                          const struct RateIntegratorSettings *settings, void *buffer, size_t bytes,
-                          struct Run *run) {
-  const struct RateComponent component = component_of(system);
-  if (rate_integrator_workspace_bytes(&component, settings->scheme) > bytes) {
-    return 1;
-  }
-  struct Probe probe = {.system = system, .fill = fill, .min_state = INFINITY};
-  const struct RateLaw law = {.evaluate = probed_law, .data = &probe};
-  run->cause = rate_integrate_segment(&component, &law, settings, buffer, bytes, system->state,
-                                      run->source, run->sink, &run->outcome);
-  run->evaluations = probe.evaluations;
-  run->min_state = probe.min_state;
-  run->non_finite = probe.non_finite;
   return 0;
 }
 
-static int run_segment(struct System *system, LawFill fill,
-                       const struct RateIntegratorSettings *settings, struct Run *run) {
-  return run_segment_in(system, fill, settings, workspace, sizeof(workspace), run);
+/** A sink whose coefficient is 1 + 3 tau^2 (flux 0): x' = -Delta (1 + 3 tau^2) x. */
+static int time_dependent_law(const struct Probe *probe, double tau, const double *x, double *k) {
+  (void)probe;
+  (void)x;
+  k[0] = 1.0 + 3.0 * tau * tau;
+  return 0;
+}
+
+/** Adaptive implicit settings at @p relative_tolerance (absolute 1e-3 times it). */
+static struct RateIntegratorSettings implicit_settings(double relative_tolerance) {
+  struct RateIntegratorSettings settings = adaptive_settings(relative_tolerance);
+  settings.scheme = RATE_SCHEME_IMPLICIT;
+  return settings;
+}
+
+/** Implicit settings of @p steps fixed steps. */
+static struct RateIntegratorSettings implicit_fixed_settings(int64_t steps) {
+  struct RateIntegratorSettings settings = fixed_settings(steps);
+  settings.scheme = RATE_SCHEME_IMPLICIT;
+  return settings;
 }
 
 /* ---------------------------------------------------------------------------
@@ -386,9 +160,7 @@ static int expected_l_for(const struct System *system, enum RateScheme scheme) {
     if (terms[i] > l) {
       l = terms[i];
     }
-    if (system->entries[i].kind != RATE_ENTRY_OBSERVER) {
-      row_size[system->entries[i].row]++;
-    }
+    row_size[system->entries[i].row]++;
   }
   for (int r = 0; r < system->num_rows && scheme == RATE_SCHEME_IMPLICIT; r++) {
     if (row_size[r] > l) {
@@ -401,13 +173,6 @@ static int expected_l_for(const struct System *system, enum RateScheme scheme) {
 /** L under the implicit scheme (expected_l_for()). */
 static int expected_l(const struct System *system) {
   return expected_l_for(system, RATE_SCHEME_IMPLICIT);
-}
-
-/** tol_F = 8u [(L + 2) N_acc + n_F + 2] (sum |x(start)| + Src + Snk). */
-static double closure_tolerance(int l, int64_t accepted, int members, double start_magnitude,
-                                double source, double sink) {
-  const double terms = (double)(l + 2) * (double)accepted + (double)members + 2.0;
-  return 8.0 * UNIT_ROUNDOFF * terms * (start_magnitude + source + sink);
 }
 
 /**
@@ -423,7 +188,7 @@ static double worst_closure(const struct System *system, const double *start, co
     double magnitude = 0.0;
     int members = 0;
     for (int i = 0; i < system->num_entries; i++) {
-      if (system->entries[i].kind == RATE_ENTRY_OBSERVER || system->entries[i].total != t) {
+      if (system->entries[i].total != t) {
         continue;
       }
       start_sum += start[i];
@@ -445,25 +210,6 @@ static double worst_closure(const struct System *system, const double *start, co
 /* ---------------------------------------------------------------------------
  * Random star components and their dense reference solve
  * ------------------------------------------------------------------------- */
-
-/** SplitMix64: the fixed-seed generator of the random components. */
-static double next_uniform(uint64_t *seed) {
-  uint64_t z = (*seed += 0x9E3779B97F4A7C15ull);
-  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-  z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-  z ^= z >> 31;
-  return (double)(z >> 11) * 0x1p-53;
-}
-
-static double uniform_in(uint64_t *seed, double low, double high) {
-  return low + (high - low) * next_uniform(seed);
-}
-
-/** A uniform integer in [0, count). */
-static int uniform_index(uint64_t *seed, int count) {
-  const int index = (int)(next_uniform(seed) * (double)count);
-  return (index < count) ? index : count - 1;
-}
 
 /* The random star's totals, numbered so the solve order (mass first) is not index order. */
 #define STAR_YIELD_TOTAL 0
@@ -493,7 +239,7 @@ struct Galaxy {
 static void build_random_star(struct System *system, uint64_t seed, double low_exponent,
                               double high_exponent, int zero_rows) {
   static struct Galaxy galaxy[12];
-  system_init(system, 3);
+  system_init(system, 0, 3);
   const int satellites = 1 + uniform_index(&seed, 11);
   const int central = uniform_index(&seed, satellites + 1);
   static int zero[MAX_DENSE];
@@ -704,7 +450,7 @@ static void dense_reference(const struct System *system, double *x) {
 
 /** Linear chain A to B to C at k1 = 1, k2 = 0.3, start (1, 0, 0), Delta = 2. */
 static void build_chain(struct System *system) {
-  system_init(system, 1);
+  system_init(system, 0, 1);
   add_row(system, 2.0);
   const int a = add_reservoir(system, 0, 1.0);
   const int b = add_reservoir(system, 0, 0.0);
@@ -725,7 +471,7 @@ static double chain_error(const double *x) {
 
 /** Bimolecular A to C at 2 B, B to C at 2 A, start (1, 0.6, 0), Delta = 3 (bimolecular_law). */
 static void build_bimolecular(struct System *system) {
-  system_init(system, 1);
+  system_init(system, 0, 1);
   add_row(system, 3.0);
   const int a = add_reservoir(system, 0, 1.0);
   const int b = add_reservoir(system, 0, 0.6);
@@ -734,32 +480,34 @@ static void build_bimolecular(struct System *system) {
   add_flux(system, RATE_FLUX_INTERNAL, b, c, 1, -1, 0.0);
 }
 
-/** Stiff pair: A and B exchanging at k, B drained at 1, Delta = 3, A0 = B0 = 0.5. */
-static void build_stiff_pair(struct System *system, double k) {
-  system_init(system, 1);
+/** Stiff pair: A and B exchanging at k, B drained at 1, Delta = 3, started at (a0, b0). */
+static void build_stiff_pair(struct System *system, double k, double a0, double b0) {
+  system_init(system, 0, 1);
   add_row(system, 3.0);
-  const int a = add_reservoir(system, 0, 0.5);
-  const int b = add_reservoir(system, 0, 0.5);
+  const int a = add_reservoir(system, 0, a0);
+  const int b = add_reservoir(system, 0, b0);
   add_flux(system, RATE_FLUX_INTERNAL, a, b, 0, -1, k);
   add_flux(system, RATE_FLUX_INTERNAL, b, a, 1, -1, k);
   add_flux(system, RATE_FLUX_SINK, b, RATE_END_EXTERNAL, 2, -1, 1.0);
 }
 
 /**
- * The stiff pair at t = 3: A' = -k A + k B, B' = k A - (k + 1) B. The rates are
- * the roots of lambda^2 + (2k + 1) lambda + k = 0, the fast one
+ * The stiff pair at t = 3 from (a0, b0): A' = -k A + k B, B' = k A - (k + 1) B.
+ * The rates are the roots of lambda^2 + (2k + 1) lambda + k = 0, the fast one
  * -((2k + 1) + sqrt(4k^2 + 1)) / 2 and the slow one k over it; an eigenvector is
- * (1, 1 + lambda / k). With A0 = B0, c_slow lambda_slow = -c_fast lambda_fast.
+ * (1, m) with m = 1 + lambda / k, so a0 = c_slow + c_fast and b0 = c_slow m_slow
+ * + c_fast m_fast.
  */
-static void stiff_pair_exact(double k, double *a, double *b) {
+static void stiff_pair_exact(double k, double a0, double b0, double *a, double *b) {
   const double t = 3.0;
-  const double a0 = 0.5;
   const double fast = -((2.0 * k + 1.0) + sqrt(4.0 * k * k + 1.0)) / 2.0;
   const double slow = k / fast;
-  const double c_slow = a0 / (1.0 - slow / fast);
-  const double c_fast = -c_slow * slow / fast;
+  const double m_slow = 1.0 + slow / k;
+  const double m_fast = 1.0 + fast / k;
+  const double c_fast = (b0 - a0 * m_slow) / (m_fast - m_slow);
+  const double c_slow = a0 - c_fast;
   *a = c_slow * exp(slow * t) + c_fast * exp(fast * t);
-  *b = c_slow * (1.0 + slow / k) * exp(slow * t) + c_fast * (1.0 + fast / k) * exp(fast * t);
+  *b = c_slow * m_slow * exp(slow * t) + c_fast * m_fast * exp(fast * t);
 }
 
 /* Yield problem constants: source s into G, formation G to S at k, yield y into Z; Delta. */
@@ -775,17 +523,15 @@ struct Yield {
   int metals;    /* Z, tracer of G, total 1 */
   int star_z;    /* Z_S, tracer of S, total 1 */
   int formation; /* flux: G to S at k */
-  int formed;    /* observer of formation */
 };
 
 /**
  * Yield: G0 = 1 fed by a source of 0.4, formation G to S at 1.3 carrying Z to
- * Z_S, a yield of 0.02 slaved to formation into Z, Z0 = 0.01, Delta = 3, and an
- * observer of formation.
+ * Z_S, a yield of 0.02 slaved to formation into Z, Z0 = 0.01, Delta = 3.
  */
 static struct Yield build_yield(struct System *system) {
   struct Yield y;
-  system_init(system, 2);
+  system_init(system, 0, 2);
   add_row(system, YIELD_DELTA);
   y.gas = add_reservoir(system, 0, 1.0);
   y.stars = add_reservoir(system, 0, 0.0);
@@ -794,7 +540,6 @@ static struct Yield build_yield(struct System *system) {
   add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, y.gas, 0, -1, YIELD_SOURCE);
   y.formation = add_flux(system, RATE_FLUX_INTERNAL, y.gas, y.stars, 1, -1, YIELD_FORMATION);
   add_flux(system, RATE_FLUX_SLAVED, RATE_END_EXTERNAL, y.metals, 2, y.formation, YIELD_FRACTION);
-  y.formed = add_observer(system, y.formation);
   return y;
 }
 
@@ -807,7 +552,7 @@ static struct Yield build_yield(struct System *system) {
  * entry's own scale, do not depend on N.
  */
 static void build_uniform_star(struct System *system, int satellites) {
-  system_init(system, 1);
+  system_init(system, 0, 1);
   add_row(system, 1.25);
   const int h = add_reservoir(system, 0, 0.08 * (double)satellites);
   const int cold = add_reservoir(system, 0, 0.01 * (double)satellites);
@@ -834,9 +579,11 @@ static void build_uniform_star(struct System *system, int satellites) {
  *
  * One fixed implicit step of length 1 on random stars (1 to 11 satellites, 2 to
  * 6 entries per galaxy, step x rate spanning eight decades up to 1e3, a fifth
- * of the right-hand sides zero) against dense_reference(). Expected: every
- * entry within 1e-10 relative of the reference (an exact zero where it is zero),
- * and the integrator's L equal to this file's.
+ * of the right-hand sides zero, and one row of each, the k-th modulo its rows,
+ * at Delta = 0, so it donates nothing and its sources move nothing but it
+ * still receives) against dense_reference(). Expected: every entry within 1e-10
+ * relative of the reference (an exact zero where it is zero), and the
+ * integrator's L equal to this file's.
  */
 static int test_block_solve_matches_dense_reference(void) {
   static struct System system;
@@ -848,6 +595,7 @@ static int test_block_solve_matches_dense_reference(void) {
   int entries = 0;
   for (int k = 0; k < RANDOM_COMPONENTS; k++) {
     build_random_star(&system, RANDOM_SEED + (uint64_t)k, -5.0, 3.0, 1);
+    system.delta[k % system.num_rows] = 0.0;
     TEST_ASSERT(system.num_entries <= MAX_DENSE, "random component too large for the reference");
     dense_reference(&system, expected);
     zero_rhs += zero_right_hand_sides(&system);
@@ -855,7 +603,7 @@ static int test_block_solve_matches_dense_reference(void) {
     if (system.num_entries > largest) {
       largest = system.num_entries;
     }
-    struct Run run;
+    static struct Run run;
     TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
     if (run.cause != RATE_CAUSE_NONE) {
       printf("  component %d failed with %s\n", k, rate_cause_name(run.cause));
@@ -897,7 +645,7 @@ static int test_block_solve_extreme_rates(void) {
   for (int k = 0; k < RANDOM_COMPONENTS; k++) {
     build_random_star(&system, RANDOM_SEED + (uint64_t)k, 8.0, 16.0, 1);
     memcpy(start, system.state, (size_t)system.num_entries * sizeof(double));
-    struct Run run;
+    static struct Run run;
     TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
     if (run.cause != RATE_CAUSE_NONE) {
       printf("  component %d failed with %s\n", k, rate_cause_name(run.cause));
@@ -962,7 +710,7 @@ static int test_scratch_and_work_linear_in_galaxies(void) {
     const struct RateComponent component = component_of(&system);
     bytes[j] = rate_integrator_workspace_bytes(&component, RATE_SCHEME_IMPLICIT);
     const size_t bound = (size_t)STAR_BYTES_PER_GALAXY * (size_t)(satellites[j] + 1);
-    struct Run run;
+    static struct Run run;
     seconds[j] = timed_segment(&system, &run);
     accepted[j] = run.outcome.stats.accepted_steps;
     evaluations[j] = run.evaluations;
@@ -1005,13 +753,13 @@ static int test_stiff_pair_flat_step_count(void) {
   int64_t fewest = INT64_MAX;
   int64_t most = 0;
   for (int j = 0; j < 4; j++) {
-    build_stiff_pair(&system, rates[j]);
-    struct Run run;
+    build_stiff_pair(&system, rates[j], 0.5, 0.5);
+    static struct Run run;
     TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "stiff pair segment failed");
     double a;
     double b;
-    stiff_pair_exact(rates[j], &a, &b);
+    stiff_pair_exact(rates[j], 0.5, 0.5, &a, &b);
     const double relative = fmax(fabs(system.state[0] - a) / a, fabs(system.state[1] - b) / b);
     const int64_t steps = run.outcome.stats.accepted_steps;
     printf("  k = %.0e: %lld accepted, %lld rejected, relative error %.3e (bound 0.05)\n", rates[j],
@@ -1023,6 +771,89 @@ static int test_stiff_pair_flat_step_count(void) {
   printf("  accepted steps from %lld to %lld (equal within one)\n", (long long)fewest,
          (long long)most);
   TEST_ASSERT(most - fewest <= 1, "stiff pair step counts differ by more than one");
+  return 0;
+}
+
+/**
+ * @test    Off its slow manifold, the stiff pair still takes a bounded number of steps
+ *
+ * The stiff pair started at (1, 0), kf = kb = 1e3, 1e6, 1e9 and 1e12, relative
+ * tolerance 1e-3: the fast transient, of time scale 1 / (2k), lies inside the
+ * first step. Expected: every segment completes; the accepted step counts lie
+ * in [25, 150] (measured 112 at 1e3, where the transient is resolved, and 35 at
+ * each faster rate), the largest at most 4 times the smallest; each entry
+ * within 0.05 relative of stiff_pair_exact(). (Filtered once, the estimate
+ * saturated on the first step's jump, and the segment underflowed at tau = 0
+ * from 1e9.)
+ */
+static int test_stiff_pair_off_manifold(void) {
+  static struct System system;
+  const double rates[4] = {1e3, 1e6, 1e9, 1e12};
+  const struct RateIntegratorSettings settings = implicit_settings(1e-3);
+  int64_t fewest = INT64_MAX;
+  int64_t most = 0;
+  for (int j = 0; j < 4; j++) {
+    build_stiff_pair(&system, rates[j], 1.0, 0.0);
+    static struct Run run;
+    TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
+    double a;
+    double b;
+    stiff_pair_exact(rates[j], 1.0, 0.0, &a, &b);
+    const double relative = fmax(fabs(system.state[0] - a) / a, fabs(system.state[1] - b) / b);
+    const int64_t steps = run.outcome.stats.accepted_steps;
+    printf("  k = %.0e from (1, 0): %s, %lld accepted, %lld rejected, relative error %.3e (bound "
+           "0.05)\n",
+           rates[j], rate_cause_name(run.cause), (long long)steps,
+           (long long)run.outcome.stats.rejected_steps, relative);
+    TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the stiff pair off its manifold failed");
+    TEST_ASSERT(steps >= 25 && steps <= 150, "an off-manifold step count left [25, 150]");
+    TEST_ASSERT(relative <= 0.05, "the stiff pair misses its closed form by more than 0.05");
+    fewest = (steps < fewest) ? steps : fewest;
+    most = (steps > most) ? steps : most;
+  }
+  printf("  accepted steps from %lld to %lld (the largest at most 4 times the smallest)\n",
+         (long long)fewest, (long long)most);
+  TEST_ASSERT(most <= 4 * fewest, "the off-manifold step counts spread by more than 4 times");
+  return 0;
+}
+
+/**
+ * @test    A draining sink completes without exhausting the step budget
+ *
+ * One entry x0 = 1 drained by a sink at rate x Delta = 1e3 and 1e6, Delta = 1,
+ * default tolerances: the content falls through hundreds of decades. Its
+ * weight's scale keeps the segment-start total, so the error control asks for
+ * absolute accuracy once the content is small. Expected: each completes (no
+ * step_budget) in at most 2,000 accepted steps (measured 647 and 1; about
+ * 57,700 when the scale followed the content down), with a non-negative end
+ * and its total within tol_F (L = 1).
+ */
+static int test_draining_sink_completes(void) {
+  static struct System system;
+  const double rates[2] = {1e3, 1e6};
+  for (int j = 0; j < 2; j++) {
+    system_init(&system, 0, 1);
+    add_row(&system, 1.0);
+    const int x = add_reservoir(&system, 0, 1.0);
+    add_flux(&system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, rates[j]);
+    struct RateIntegratorSettings settings;
+    rate_integrator_default_settings(&settings);
+    settings.scheme = RATE_SCHEME_IMPLICIT;
+    static struct Run run;
+    TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
+    const double drift = fabs((system.state[x] - 1.0) + run.sink[0]);
+    const double tolerance =
+        closure_tolerance(1, run.outcome.stats.accepted_steps, 1, 1.0, 0.0, run.sink[0]);
+    printf("  sink rate x Delta = %.0e: %s, %lld accepted, %lld rejected, x = %.3e, closure %.3e "
+           "(tol_F %.3e)\n",
+           rates[j], rate_cause_name(run.cause), (long long)run.outcome.stats.accepted_steps,
+           (long long)run.outcome.stats.rejected_steps, system.state[x], drift, tolerance);
+    TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the draining sink did not complete");
+    TEST_ASSERT(run.outcome.stats.accepted_steps <= 2000,
+                "the draining sink took more than 2,000 accepted steps");
+    TEST_ASSERT(system.state[x] >= 0.0, "the drained entry ended negative");
+    TEST_ASSERT(drift <= tolerance, "the drained total does not close within tol_F");
+  }
   return 0;
 }
 
@@ -1045,8 +876,9 @@ static int test_bimolecular_drift_first_order(void) {
     build_bimolecular(&system);
     const double start[3] = {1.0, 0.6, 0.0};
     const struct RateIntegratorSettings settings = implicit_fixed_settings(steps[j]);
-    struct Run run;
-    TEST_ASSERT(run_segment(&system, bimolecular_law, &settings, &run) == 0, "workspace too small");
+    struct Probe probe = law_probe(bimolecular_law);
+    static struct Run run;
+    TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "bimolecular segment failed");
     drift[j] = fabs((system.state[0] - system.state[1]) - (start[0] - start[1]));
     const double ratio = worst_closure(&system, start, &run, expected_l(&system));
@@ -1079,7 +911,7 @@ static int test_linear_chain_first_order(void) {
   for (int j = 0; j < 4; j++) {
     build_chain(&system);
     const struct RateIntegratorSettings settings = implicit_fixed_settings(steps[j]);
-    struct Run run;
+    static struct Run run;
     TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "chain segment failed");
     error[j] = chain_error(system.state);
@@ -1095,12 +927,46 @@ static int test_linear_chain_first_order(void) {
 }
 
 /**
+ * @test    A time-dependent law converges at first order at fixed steps
+ *
+ * x' = -Delta (1 + 3 tau^2) x in tau units, Delta = 2, x0 = 1, so x(1) =
+ * e^(-2 Delta); the coefficients are frozen at each step's start time. Every
+ * other proving problem is autonomous, so this case alone pins the law's time.
+ * Expected: |p - 1| <= 0.1 on each halving from n = 16 to 256.
+ */
+static int test_time_dependent_first_order(void) {
+  static struct System system;
+  const int64_t steps[5] = {16, 32, 64, 128, 256};
+  double error[5];
+  for (int j = 0; j < 5; j++) {
+    system_init(&system, 0, 1);
+    add_row(&system, 2.0);
+    const int x = add_reservoir(&system, 0, 1.0);
+    add_flux(&system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, 0.0);
+    const struct RateIntegratorSettings settings = implicit_fixed_settings(steps[j]);
+    struct Probe probe = law_probe(time_dependent_law);
+    static struct Run run;
+    TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
+    TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the time-dependent decay failed");
+    error[j] = fabs(system.state[x] - exp(-2.0 * 2.0));
+    printf("  time-dependent n=%-4lld error=%.4e\n", (long long)steps[j], error[j]);
+  }
+  for (int j = 0; j < 4; j++) {
+    const double p = log2(error[j] / error[j + 1]);
+    printf("  time-dependent halving %lld->%lld p=%.4f (|p-1|<=0.1)\n", (long long)steps[j],
+           (long long)steps[j + 1], p);
+    TEST_ASSERT(fabs(p - 1.0) <= 0.1, "the time-dependent order departs from 1 by more than 0.1");
+  }
+  return 0;
+}
+
+/**
  * @test    Yield problem: tracers within the tracer bound, the tracer total within tol_F
  *
  * G0 = 1, Z0 = 0.01, source 0.4 into G, formation G to S at 1.3, yield 0.02
  * slaved to formation into Z, Delta = 3, at relative tolerance 1e-4 and 1e-8.
  * Theta of G is its start content plus the source amount; of S, the formed
- * amount (an observer). Expected: z - p <= 8u (L + 2) N_acc Theta_p for both
+ * amount (formation's flux amount). Expected: z - p <= 8u (L + 2) N_acc Theta_p for both
  * tracers, both totals within tol_F with the yield as the tracer total's only
  * external amount, and the yield amount 0.02 x the formed amount within 8u N_acc
  * relative.
@@ -1113,14 +979,14 @@ static int test_yield_tracer_bound_and_closure(void) {
     double start[5];
     memcpy(start, system.state, sizeof(start));
     const struct RateIntegratorSettings settings = implicit_settings(tolerances[j]);
-    struct Run run;
+    static struct Run run;
     TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
     TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "yield segment failed");
 
     const int l = expected_l(&system);
     const int64_t accepted = run.outcome.stats.accepted_steps;
     const double *x = system.state;
-    const double formed = x[y.formed];
+    const double formed = run.flux[y.formation];
     const double gas_bound =
         8.0 * UNIT_ROUNDOFF * (double)(l + 2) * (double)accepted * (start[y.gas] + run.source[0]);
     const double stars_bound =
@@ -1144,7 +1010,7 @@ static int test_yield_tracer_bound_and_closure(void) {
 }
 
 /* ---------------------------------------------------------------------------
- * The first step, observers and self-transfers
+ * The starting step, the error estimate, flux amounts and self-transfers
  * ------------------------------------------------------------------------- */
 
 /** An empty central: what feeds it. */
@@ -1157,7 +1023,7 @@ enum EmptyCentral { STRIPPED_INTO_EMPTY_CENTRAL, SOURCE_INTO_EMPTY_CENTRAL };
  * SOURCE: a source of 0.5 feeds the central's H instead.
  */
 static void build_empty_central(struct System *system, enum EmptyCentral feed) {
-  system_init(system, 1);
+  system_init(system, 0, 1);
   add_row(system, 1.25);
   const int h = add_reservoir(system, 0, 0.0);
   const int cold = add_reservoir(system, 0, 0.0);
@@ -1174,20 +1040,35 @@ static void build_empty_central(struct System *system, enum EmptyCentral feed) {
 }
 
 /**
- * @test    An empty central fed from outside its row does not shrink the first step
+ * The first attempt's step from the starting step min(1, @p cap) after landing:
+ * the remainder 1 is taken whole when it is within 1.1 of the step and within
+ * the cap, halved when it is shorter than two steps, and the step kept otherwise.
+ */
+static double landed_first_step(double cap) {
+  const double step = fmin(1.0, cap);
+  if (1.0 <= 1.1 * step && 1.0 <= cap) {
+    return 1.0;
+  }
+  return (1.0 < 2.0 * step) ? 0.5 : step;
+}
+
+/**
+ * @test    An empty central fed from outside its row starts at the starting step
  *
  * build_empty_central(), stripped and source-fed, under both schemes at the
  * default tolerances. The central's own total is zero at the segment start
- * while the component's is not; without leaving an empty row of its total out
- * of the first-step rule, its floored weight (about 1e-19) asks for a first step
- * below 2^-46 and the segment fails with step_underflow. Expected: every case
- * integrates without failure, its first step is at least 2^-46, and its total
- * closes within tol_F (this file's L for the scheme).
+ * while the component's is not. Expected: every case integrates without
+ * failure; its first attempt's step is the starting step after landing
+ * (landed_first_step()): under the explicit scheme of the cap 0.9 x 2 / K_max,
+ * K_max = Delta_s (0.6 + 1.7) = 2.3 stripped and 0.6 source-fed (only G has
+ * content), under the implicit scheme of no cap; and its total closes within
+ * tol_F (this file's L for the scheme).
  */
-static int test_empty_central_first_step(void) {
+static int test_empty_central_start(void) {
   static struct System system;
   static struct AttemptLog log;
   const char *feeds[2] = {"stripped into", "source into"};
+  const double k_max[2] = {1.0 * (0.6 + 1.7), 1.0 * 0.6};
   int failures = 0;
   for (int feed = 0; feed < 2; feed++) {
     for (int implicit = 0; implicit <= 1; implicit++) {
@@ -1198,88 +1079,40 @@ static int test_empty_central_first_step(void) {
       rate_integrator_default_settings(&settings);
       settings.scheme = implicit ? RATE_SCHEME_IMPLICIT : RATE_SCHEME_EXPLICIT;
       attach_log(&settings, &log, &system);
-      struct Run run;
+      static struct Run run;
       TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
       const double closure =
           worst_closure(&system, start, &run, expected_l_for(&system, settings.scheme));
       const double first = (log.count > 0) ? log.step[0] : 0.0;
-      const int ok = run.cause == RATE_CAUSE_NONE && first >= 0x1p-46 && closure <= 1.0;
-      printf("  %s an empty central, %s: %s, first step %.3e, %lld accepted, closure %.3e of "
-             "tol_F%s\n",
+      const double expected = landed_first_step(implicit ? INFINITY : (0.9 * 2.0) / k_max[feed]);
+      const int ok = run.cause == RATE_CAUSE_NONE && first == expected && closure <= 1.0;
+      printf("  %s an empty central, %s: %s, first step %.17g (expected %.17g), %lld accepted, "
+             "closure %.3e of tol_F%s\n",
              feeds[feed], implicit ? "implicit" : "explicit", rate_cause_name(run.cause), first,
-             (long long)run.outcome.stats.accepted_steps, closure, ok ? "" : "  <- FAILED");
+             expected, (long long)run.outcome.stats.accepted_steps, closure,
+             ok ? "" : "  <- FAILED");
       failures += !ok;
     }
   }
-  TEST_ASSERT(failures == 0, "a segment feeding an empty central failed, started below 2^-46 "
-                             "or did not close within tol_F");
-  return 0;
-}
-
-/** A sink whose coefficient is the observer's content (entry 1), flux 1. */
-static void observer_law(const struct System *system, const double *x, double *k) {
-  (void)system;
-  k[1] = x[1];
-}
-
-/**
- * @test    The implicit scheme's next step starts from the observers it committed
- *
- * R0 = 1 fed by a source of 1, an observer O (O0 = 0) on that source, and a
- * sink from R whose coefficient is O; Delta = 1, relative tolerance 1e-3,
- * absolute 1e-6. With the coefficients frozen at the step start, the second
- * accepted step of length h solves R2 = (R1 + h) / (1 + h O1), O1 the observer
- * committed by the first. Expected: the first step commits O1 = h1 and R1 =
- * 1 + h1, and the second meets its equation to 4u relative, which a law that
- * saw O at its pre-commit value 0 would miss.
- */
-static int test_observer_seen_at_committed_value(void) {
-  static struct System system;
-  static struct AttemptLog log;
-  system_init(&system, 1);
-  add_row(&system, 1.0);
-  const int r = add_reservoir(&system, 0, 1.0);
-  const int source = add_flux(&system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, r, 0, -1, 1.0);
-  add_observer(&system, source);
-  add_flux(&system, RATE_FLUX_SINK, r, RATE_END_EXTERNAL, 1, -1, 0.0);
-  struct RateIntegratorSettings settings = implicit_settings(1e-3);
-  settings.absolute_tolerance = 1e-6;
-  attach_log(&settings, &log, &system);
-  struct Run run;
-  TEST_ASSERT(run_segment(&system, observer_law, &settings, &run) == 0, "workspace too small");
-  TEST_ASSERT(run.cause == RATE_CAUSE_NONE && log.kept == 2, "observer segment failed");
-
-  const double h1 = log.kept_step[0];
-  const double r1 = log.kept_state[0][0];
-  const double o1 = log.kept_state[0][1];
-  const double h2 = log.kept_step[1];
-  const double r2 = log.kept_state[1][0];
-  const double expected = (r1 + h2) / (1.0 + h2 * o1);
-  const double stale = r1 + h2; /* the second step with O seen at 0 */
-  const double gap = fabs(r2 - expected) / expected;
-  printf("  step 1: h = %.17g, R1 = %.17g, O1 = %.17g; step 2: h = %.17g, R2 = %.17g against "
-         "(R1 + h) / (1 + h O1) = %.17g (relative gap %.1e, bound 4u; with O stale %.17g)\n",
-         h1, r1, o1, h2, r2, expected, gap, stale);
-  TEST_ASSERT(o1 == h1 && r1 == 1.0 + h1, "the first step did not commit O1 = h1, R1 = 1 + h1");
-  TEST_ASSERT(gap <= 4.0 * UNIT_ROUNDOFF, "the second step did not start from the committed O1");
+  TEST_ASSERT(failures == 0, "a segment feeding an empty central failed, did not start at the "
+                             "starting step or did not close within tol_F");
   return 0;
 }
 
 /**
- * @test    Under the implicit scheme a self-transfer commits nothing and observers sum exactly
+ * @test    Under the implicit scheme a self-transfer commits nothing and flux amounts sum exactly
  *
  * G0 = 1 with tracer Z0 = 0.01, S with tracer Z_S; formation G to S at 1.3, a
  * transfer G to G at 0.7 (both ends one entry) and a yield of 0.02 slaved to
- * the self-transfer into Z; Delta = 3, relative tolerance 1e-6. Observers on the
- * self-transfer and on formation start at zero. Expected: the self-transfer
- * observer and the sum of its reported committed amounts are both exactly 0,
- * the formation observer equals the sum of its reported amounts bit for bit,
- * and the tracer total gains no source.
+ * the self-transfer into Z; Delta = 3, relative tolerance 1e-6. Expected: the
+ * self-transfer's flux amount and the sum of its reported committed amounts are
+ * both exactly 0, formation's flux amount equals the sum of its reported
+ * amounts bit for bit, and the tracer total gains no source.
  */
-static int test_self_transfer_and_observers_implicit(void) {
+static int test_self_transfer_and_flux_amounts_implicit(void) {
   static struct System system;
   static struct AttemptLog log;
-  system_init(&system, 2);
+  system_init(&system, 0, 2);
   add_row(&system, 3.0);
   const int gas = add_reservoir(&system, 0, 1.0);
   const int stars = add_reservoir(&system, 0, 0.0);
@@ -1288,27 +1121,25 @@ static int test_self_transfer_and_observers_implicit(void) {
   const int formation = add_flux(&system, RATE_FLUX_INTERNAL, gas, stars, 0, -1, 1.3);
   const int self = add_flux(&system, RATE_FLUX_INTERNAL, gas, gas, 1, -1, 0.7);
   add_flux(&system, RATE_FLUX_SLAVED, RATE_END_EXTERNAL, metals, 2, self, 0.02);
-  const int self_observer = add_observer(&system, self);
-  const int formed = add_observer(&system, formation);
   struct RateIntegratorSettings settings = implicit_settings(1e-6);
   attach_log(&settings, &log, &system);
   log.watched[0] = self;
   log.watched[1] = formation;
-  struct Run run;
+  static struct Run run;
   TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
   TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "self-transfer segment failed");
 
   const double zero = 0.0;
-  printf("  self-transfer observer %.17g, sum of its reported amounts %.17g; formed %.17g, "
+  printf("  self-transfer flux amount %.17g, sum of its reported amounts %.17g; formed %.17g, "
          "sum %.17g; tracer source %.3g; %lld accepted steps\n",
-         system.state[self_observer], log.sum[0], system.state[formed], log.sum[1], run.source[1],
+         run.flux[self], log.sum[0], run.flux[formation], log.sum[1], run.source[1],
          (long long)run.outcome.stats.accepted_steps);
-  TEST_ASSERT(memcmp(&system.state[self_observer], &zero, sizeof(double)) == 0,
-              "the self-transfer observer is not exactly zero");
+  TEST_ASSERT(memcmp(&run.flux[self], &zero, sizeof(double)) == 0,
+              "the self-transfer's flux amount is not exactly zero");
   TEST_ASSERT(memcmp(&log.sum[0], &zero, sizeof(double)) == 0,
               "the self-transfer's reported committed amounts are not exactly zero");
-  TEST_ASSERT(memcmp(&system.state[formed], &log.sum[1], sizeof(double)) == 0,
-              "the formation observer differs from the sum of its committed amounts");
+  TEST_ASSERT(memcmp(&run.flux[formation], &log.sum[1], sizeof(double)) == 0,
+              "formation's flux amount differs from the sum of its committed amounts");
   TEST_ASSERT(run.source[1] == 0.0, "a yield slaved to a self-transfer moved content");
   return 0;
 }
@@ -1318,54 +1149,86 @@ static int test_self_transfer_and_observers_implicit(void) {
  * ------------------------------------------------------------------------- */
 
 /**
- * @test    The first step, the filtered error estimate and the controller on one sink
+ * @test    The starting step, the twice-filtered error estimate and the controller on one sink
  *
- * x0 = 1 drained at k = 1, Delta = 1, default tolerances (relative 1e-4,
- * absolute 1e-7), so K = 1 and S = x0. Closed forms: the first step is h0 =
- * 0.01 d0 / d1 with d0 = x0 / w0 and d1 = K x0 / w0, so h0 = 0.01 / K; the solve
- * gives x1 = x0 / (1 + h0 K); the estimate is e = (h0 / 2) (F(x1) - F(x0)) /
- * (1 + h0 K), F(x) = -K x; err = |e| / (absolute + relative), the weight's
- * scale and its larger content both x0. Expected: the first attempt accepted
- * with that step and error norm to 1e-12 relative, and the second attempt's
- * step the first times 0.9 err^(-1/2), to 1e-12 relative.
+ * x0 = 1 drained at k = 1, Delta = 1, relative tolerance 1e-2 (absolute 1e-5),
+ * so K = 1. Closed forms: the first step is 1; the solve gives x1 = x0 / (1 +
+ * K); the estimate is e = (1 / 2) (F(x1) - F(x0)) / (1 + K)^2, F(x) = -K x,
+ * filtered by both solves; its weight is absolute x 1 + relative x x0 (the
+ * scale is the segment-start total 1, the larger content x0), err = e / weight
+ * = 6.24, so the step is rejected and the second is 1 x 0.9 err^(-1/2) = 0.36
+ * (within the clamp [0.2, 5], and short enough that landing leaves it).
+ * Expected: the first attempt rejected with that step and error norm to 1e-12
+ * relative (filtered once, the norm would be twice as large), and the second
+ * step to 1e-12 relative.
  */
-static int test_first_step_estimate_and_controller(void) {
+static int test_start_estimate_and_controller(void) {
   static struct System system;
   static struct AttemptLog log;
-  system_init(&system, 1);
+  system_init(&system, 0, 1);
   add_row(&system, 1.0);
   const int x = add_reservoir(&system, 0, 1.0);
   add_flux(&system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, 1.0);
-  struct RateIntegratorSettings settings = implicit_settings(1e-4);
-  settings.absolute_tolerance = 1e-7;
+  struct RateIntegratorSettings settings = implicit_settings(1e-2);
   attach_log(&settings, &log, &system);
-  struct Run run;
+  static struct Run run;
   TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
-  TEST_ASSERT(run.cause == RATE_CAUSE_NONE && log.count >= 2, "single sink segment failed");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE && log.count >= 3, "single sink segment failed");
 
   const double k = 1.0;
-  const double h0 = 0.01 / k;
-  const double x1 = 1.0 / (1.0 + h0 * k);
-  const double estimate = (h0 / 2.0) * (-k * x1 + k * 1.0) / (1.0 + h0 * k);
-  const double err = estimate / (1e-7 + 1e-4);
-  const double second = h0 * fmin(5.0, fmax(0.2, 0.9 / sqrt(err)));
-  const double step_gap = fabs(log.step[0] - h0) / h0;
+  const double x1 = 1.0 / (1.0 + k);
+  const double estimate = 0.5 * (-k * x1 + k * 1.0) / ((1.0 + k) * (1.0 + k));
+  const double err = estimate / (1e-5 * 1.0 + 1e-2 * 1.0);
+  const double second = 1.0 * fmin(5.0, fmax(0.2, 0.9 / sqrt(err)));
   const double norm_gap = fabs(log.error_norm[0] - err) / err;
   const double next_gap = fabs(log.step[1] - second) / second;
-  printf("  first step %.17g (closed form %.17g), err %.17g (closed form %.17g), second step "
-         "%.17g (closed form %.17g); relative gaps %.1e, %.1e, %.1e (bound 1e-12)\n",
-         log.step[0], h0, log.error_norm[0], err, log.step[1], second, step_gap, norm_gap,
-         next_gap);
-  TEST_ASSERT(log.accepted[0], "the first attempt was rejected");
-  TEST_ASSERT(step_gap <= 1e-12, "the first step is not h0 = 0.01 d0 / d1");
-  TEST_ASSERT(norm_gap <= 1e-12, "the error norm is not the filtered estimate's");
+  printf("  first step %.17g (closed form 1), err %.17g (closed form %.17g), second step %.17g "
+         "(closed form %.17g); relative gaps %.1e, %.1e (bound 1e-12)\n",
+         log.step[0], log.error_norm[0], err, log.step[1], second, norm_gap, next_gap);
+  TEST_ASSERT(log.step[0] == 1.0 && log.tau[0] == 0.0, "the first step is not 1");
+  TEST_ASSERT(!log.accepted[0], "the first attempt was not rejected");
+  TEST_ASSERT(norm_gap <= 1e-12, "the error norm is not the twice-filtered estimate's");
   TEST_ASSERT(next_gap <= 1e-12, "the controller is not 0.9 err^(-1/2)");
+  return 0;
+}
+
+/**
+ * @test    Under the implicit scheme the step does not grow right after a rejection
+ *
+ * The stiff pair from (1, 0) at kf = kb = 1e6, relative tolerance 1e-4: its
+ * first attempts are rejected on the transient, and the first step accepted
+ * after them has an error norm below 0.9^2, where the controller alone would
+ * lengthen the step (0.9 err^(-1/2) > 1; measured err 0.794). Expected: that
+ * accepted step exists, and the next attempt is no longer than it.
+ */
+static int test_no_growth_after_rejection_implicit(void) {
+  static struct System system;
+  static struct AttemptLog log;
+  build_stiff_pair(&system, 1e6, 1.0, 0.0);
+  struct RateIntegratorSettings settings = implicit_settings(1e-4);
+  attach_log(&settings, &log, &system);
+  static struct Run run;
+  TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
+  TEST_ASSERT(run.cause == RATE_CAUSE_NONE, "the stiff pair failed");
+  int64_t held = -1; /* the first accepted step after a rejection with err below 0.9^2 */
+  for (int64_t i = 1; i + 1 < log.count && i + 1 < LOG_CAPACITY && held < 0; i++) {
+    if (log.accepted[i] && !log.accepted[i - 1] && log.error_norm[i] < 0.9 * 0.9) {
+      held = i;
+    }
+  }
+  TEST_ASSERT(held >= 0, "the case must accept a step after a rejection with room to grow");
+  printf("  attempt %lld accepted after a rejection at step %.17g with err %.4f (controller "
+         "factor %.4f); next step %.17g\n",
+         (long long)held, log.step[held], log.error_norm[held], 0.9 / sqrt(log.error_norm[held]),
+         log.step[held + 1]);
+  TEST_ASSERT(log.step[held + 1] <= log.step[held], "the step grew right after a rejection");
+  TEST_ASSERT(!log.grew_after_rejection, "a step grew right after a rejection");
   return 0;
 }
 
 /** A row holding 1e308 fed by a source of 1e308 per unit time, Delta = 1. */
 static void build_overflow(struct System *system) {
-  system_init(system, 1);
+  system_init(system, 0, 1);
   add_row(system, 1.0);
   const int h = add_reservoir(system, 0, 1e308);
   add_flux(system, RATE_FLUX_SOURCE, RATE_END_EXTERNAL, h, 0, -1, 1e308);
@@ -1385,7 +1248,7 @@ static int test_overflowing_solve_rejected(void) {
   static struct AttemptLog log;
   build_overflow(&system);
   struct RateIntegratorSettings settings = implicit_fixed_settings(1);
-  struct Run run;
+  static struct Run run;
   TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
   printf("  one fixed step: %s, entry %d, H = %.17g\n", rate_cause_name(run.cause),
          run.outcome.failure.entry, system.state[0]);
@@ -1411,8 +1274,9 @@ static int test_overflowing_solve_rejected(void) {
 /**
  * @test    The sink at c / x fails under the explicit scheme and integrates under the implicit
  *
- * x0 = 0.5, c = 1, Delta = 1: the exact x reaches zero at t = 0.5, where the
- * coefficient diverges, so the law is ill-posed beyond it. Expected: the
+ * x0 = 0.6, c = 1, Delta = 1: the exact x reaches zero at t = 0.6, where the
+ * coefficient diverges, so the law is ill-posed beyond it (x0 is no dyadic
+ * fraction, so no explicit stage lands on zero exactly). Expected: the
  * explicit scheme fails with step_underflow; the implicit scheme ends at tau = 1
  * without failure, with a finite non-negative entry. That the implicit scheme
  * integrates an ill-posed law without complaint is why it is never the default.
@@ -1422,13 +1286,14 @@ static int test_ill_posed_sink_integrates_without_complaint(void) {
   struct RateIntegratorSettings settings;
   rate_integrator_default_settings(&settings);
   for (int implicit = 0; implicit <= 1; implicit++) {
-    system_init(&system, 1);
+    system_init(&system, 0, 1);
     add_row(&system, 1.0);
-    const int x = add_reservoir(&system, 0, 0.5);
+    const int x = add_reservoir(&system, 0, 0.6);
     add_flux(&system, RATE_FLUX_SINK, x, RATE_END_EXTERNAL, 0, -1, 0.0);
     settings.scheme = implicit ? RATE_SCHEME_IMPLICIT : RATE_SCHEME_EXPLICIT;
-    struct Run run;
-    TEST_ASSERT(run_segment(&system, inverse_law, &settings, &run) == 0, "workspace too small");
+    struct Probe probe = law_probe(inverse_law);
+    static struct Run run;
+    TEST_ASSERT(run_segment(&system, &probe, &settings, &run) == 0, "workspace too small");
     printf("  %s scheme: %s after %lld accepted steps, x = %.3e\n",
            implicit ? "implicit" : "explicit", rate_cause_name(run.cause),
            (long long)run.outcome.stats.accepted_steps, system.state[x]);
@@ -1475,7 +1340,7 @@ static int test_non_finite_product_fails(void) {
   const struct RateIntegratorSettings settings = implicit_fixed_settings(1);
   for (size_t j = 0; j < sizeof(cases) / sizeof(cases[0]); j++) {
     const struct ProductCase *row = &cases[j];
-    system_init(&system, 1);
+    system_init(&system, 0, 1);
     add_row(&system, row->delta);
     const int a = add_reservoir(&system, 0, 1.0);
     for (int f = 0; f < row->fluxes; f++) {
@@ -1486,7 +1351,7 @@ static int test_non_finite_product_fails(void) {
       }
     }
     const double before = system.state[a];
-    struct Run run;
+    static struct Run run;
     TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
     const struct RateFailure *failure = &run.outcome.failure;
     printf("  %s: %s, entry %d, flux %d, detail \"%s\"\n", row->name, rate_cause_name(run.cause),
@@ -1512,7 +1377,7 @@ static int test_tiny_entry_drained_hard(void) {
   static struct System system;
   const int64_t fixed[3] = {0, 1, 16};
   for (int j = 0; j < 3; j++) {
-    system_init(&system, 1);
+    system_init(&system, 0, 1);
     add_row(&system, 1.0);
     const int a = add_reservoir(&system, 0, 1e-20);
     const int b = add_reservoir(&system, 0, 1.0);
@@ -1521,7 +1386,7 @@ static int test_tiny_entry_drained_hard(void) {
     settings.fixed_steps = fixed[j];
     struct AttemptLog log;
     attach_log(&settings, &log, &system);
-    struct Run run;
+    static struct Run run;
     TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
     printf("  %s: %s, %lld accepted; smallest entry a law saw %.3e, smallest committed %.3e, "
            "A = %.3e\n",
@@ -1577,10 +1442,10 @@ static int test_flux_order_independent(void) {
     reverse_fluxes(&reversed);
     struct RateIntegratorSettings settings = implicit_settings(1e-4);
     attach_log(&settings, &forward_log, &forward);
-    struct Run forward_run;
+    static struct Run forward_run;
     TEST_ASSERT(run_segment(&forward, NULL, &settings, &forward_run) == 0, "workspace too small");
     attach_log(&settings, &reversed_log, &reversed);
-    struct Run reversed_run;
+    static struct Run reversed_run;
     TEST_ASSERT(run_segment(&reversed, NULL, &settings, &reversed_run) == 0, "workspace too small");
     if (forward_run.cause != RATE_CAUSE_NONE || reversed_run.cause != RATE_CAUSE_NONE) {
       const struct RateFailure *failure = &forward_run.outcome.failure;
@@ -1613,7 +1478,7 @@ static int test_flux_order_independent(void) {
 /** Integrate @p system under the implicit scheme in a child (expect_fatal()). */
 static void run_refused(struct System *system) {
   const struct RateIntegratorSettings settings = implicit_settings(1e-4);
-  struct Run run;
+  static struct Run run;
   (void)run_segment(system, NULL, &settings, &run);
 }
 
@@ -1621,7 +1486,7 @@ static void run_refused(struct System *system) {
 static void run_split_row(const char *arg) {
   (void)arg;
   static struct System system;
-  system_init(&system, 1);
+  system_init(&system, 0, 1);
   add_row(&system, 1.0);
   add_row(&system, 1.0);
   system.row = 0;
@@ -1638,7 +1503,7 @@ static void run_split_row(const char *arg) {
 static void run_row_cycle(const char *arg) {
   (void)arg;
   static struct System system;
-  system_init(&system, 1);
+  system_init(&system, 0, 1);
   add_row(&system, 1.0);
   const int a = add_reservoir(&system, 0, 1.0);
   add_row(&system, 1.0);
@@ -1652,7 +1517,7 @@ static void run_row_cycle(const char *arg) {
 static void run_total_cycle(const char *arg) {
   (void)arg;
   static struct System system;
-  system_init(&system, 1);
+  system_init(&system, 0, 1);
   add_row(&system, 1.0);
   const int a = add_reservoir(&system, 0, 1.0);
   const int b = add_reservoir(&system, 0, 0.0);
@@ -1665,7 +1530,7 @@ static void run_total_cycle(const char *arg) {
 static void run_joined_totals(const char *arg) {
   (void)arg;
   static struct System system;
-  system_init(&system, 2);
+  system_init(&system, 0, 2);
   add_row(&system, 1.0);
   const int a = add_reservoir(&system, 0, 1.0);
   const int b = add_reservoir(&system, 1, 0.0);
@@ -1706,13 +1571,16 @@ int main(void) {
   TEST_RUN(test_block_solve_extreme_rates);
   TEST_RUN(test_scratch_and_work_linear_in_galaxies);
   TEST_RUN(test_stiff_pair_flat_step_count);
+  TEST_RUN(test_stiff_pair_off_manifold);
+  TEST_RUN(test_draining_sink_completes);
   TEST_RUN(test_bimolecular_drift_first_order);
   TEST_RUN(test_linear_chain_first_order);
+  TEST_RUN(test_time_dependent_first_order);
   TEST_RUN(test_yield_tracer_bound_and_closure);
-  TEST_RUN(test_empty_central_first_step);
-  TEST_RUN(test_observer_seen_at_committed_value);
-  TEST_RUN(test_self_transfer_and_observers_implicit);
-  TEST_RUN(test_first_step_estimate_and_controller);
+  TEST_RUN(test_empty_central_start);
+  TEST_RUN(test_self_transfer_and_flux_amounts_implicit);
+  TEST_RUN(test_start_estimate_and_controller);
+  TEST_RUN(test_no_growth_after_rejection_implicit);
   TEST_RUN(test_overflowing_solve_rejected);
   TEST_RUN(test_ill_posed_sink_integrates_without_complaint);
   TEST_RUN(test_non_finite_product_fails);

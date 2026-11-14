@@ -8,30 +8,41 @@
  *   another mode, in pre_timestep, post_timestep or post_snapshot, in a second
  *   phase, or listed twice; a slaved source whose master's module is not in the
  *   phase; a dependency cycle among totals (named); a transfer whose end has the
- *   wrong kind in the reservoir table; settings out of range; a changes_totals
- *   name the reservoir table does not hold (stale generated code). Each refusal comes
- *   from module_system_init() before any init(), naming the phase and the module,
- *   transfer or totals
+ *   wrong kind in the reservoir table; settings out of range (a rejection budget
+ *   below 20 among them, while 20 is accepted); one observer declared twice; a
+ *   changes_totals name the reservoir table does not hold (stale generated code).
+ *   Each refusal comes from module_system_init() before any init(), naming the
+ *   phase and the module, transfer or totals
  * - The cycle finder on its own, on graphs with and without a cycle
- * - The run-file defaults (constants.h) equal the integrator's own defaults
+ * - The gather's domain: a negative, NaN or infinite reservoir or tracer at
+ *   segment start is fatal, naming the row and the property
  * - The domain: with no central transfer and no central read, a galaxy's end
  *   state is bit-identical whatever the other rows hold; with a central reader
  *   it is not
  * - The central view: a module declaring reads_central gets the central's
  *   scratch copy at the trial state and makes the group one component; a module
  *   that does not gets NULL; test_rate_stripping makes the group one component
+ * - The row mapping: in a group whose retired row comes ahead of a central that
+ *   is not row 0, the central view and a transfer to the central reach the
+ *   central, and the retired row is untouched
+ * - The clocks: each row's law time over two substeps follows ctx->time + dT_r -
+ *   (substep + tau) Delta_r at the four stages of the first step, and a unit
+ *   source brings exactly dT_r over the substeps
  * - The first-snapshot sentinel: an all-sentinel group is unchanged and runs no
- *   law; a non-sentinel row with dT <= 0 is fatal, naming the row
+ *   law; a sentinel row beside a positive-Delta row sees the base time and
+ *   receives nothing from its own source; a non-sentinel row with dT <= 0 is
+ *   fatal, naming the row
  * - A rate law can neither emit an event nor create a record
  * - A law returning NaN is fatal, naming the module, its transfer and the cause;
  *   for a source into the central, the message names the satellite row whose
  *   law returned it as well as the central's recipient entry
+ * - A tracer_bound failure names the module and transfer of the tracer's own
+ *   source, the total, the tracer and the galaxy
  * - The failure file of a failed segment: written to the output directory before
- *   the run ends, holding the segment-start state, each row's Delta and the
- *   failing evaluation's coefficients as hexadecimal floats; a coefficient whose
- *   law had not run (a law returned non-zero mid-group) is marked not_evaluated,
- *   and a segment that failed before any law ran lists none, even when an earlier
- *   component left coefficients in the scratch
+ *   the run ends, holding the build's version and commit, the base time and
+ *   redshift, the segment-start state, each row's Delta and the failing
+ *   evaluation's coefficients as hexadecimal floats; a coefficient whose law had
+ *   not run (a law returned non-zero mid-group) is marked not_evaluated
  * - The purity probe (check_purity): with it off no law is evaluated beyond the
  *   integrator's own; with it on every law is evaluated once more, in reversed
  *   canonical order, at a segment's first evaluation; a law whose coefficient
@@ -50,7 +61,11 @@
  *   declares the total and subscribes to that producer, and counted, but the
  *   same declaration does not cover an unrelated full-halo module, whose change
  *   is fatal naming it; the by-galaxy pass is one unit, covered by any by-galaxy
- *   module of the phase that declares the total
+ *   module of the phase that declares the total. A total made infinite is fatal
+ *   in the unit that made it, declared or not; a rearrangement between rows,
+ *   and thousands of exchanges whose own rounding drifts the total by less than
+ *   2^-40 of it, are not flagged; an undeclared relative change of 1e-9 is; a
+ *   row retired while it holds content is an undeclared loss
  * - The step statistics: the recorded segments equal the (component, substep)
  *   pairs run, the law evaluations times the rows per component equal a
  *   counting law's calls, and each histogram's counts sum to the segments
@@ -128,6 +143,8 @@ struct LawCall {
   const struct Halo *halo;    /* the scratch row the law received */
   const struct Halo *central; /* RateContext.central */
   double central_cold;        /* the central view's RateFixtureCold, or NaN */
+  long long central_id;       /* the central view's UniqueGalaxyID, or -1 */
+  double time;                /* RateContext.time */
   int phase_mark;             /* discrete_phase_calls when the law ran */
 };
 
@@ -145,6 +162,10 @@ static double producer_adds = 0.0;
 static double other_adds = 0.0;
 static double galaxy_adds = 0.0;
 
+/** Exchanges of the shuffling probe (ledger_shuffle_process()) */
+static int shuffle_count = 0;
+static double shuffle_amount = 0.0;
+
 static void reset_probes(void) {
   num_calls = 0;
   discrete_phase_calls = 0;
@@ -153,6 +174,8 @@ static void reset_probes(void) {
   producer_adds = 0.0;
   other_adds = 0.0;
   galaxy_adds = 0.0;
+  shuffle_count = 0;
+  shuffle_amount = 0.0;
 }
 
 static void record_call(const struct RateContext *ctx, const struct Halo *halo) {
@@ -166,7 +189,37 @@ static void record_call(const struct RateContext *ctx, const struct Halo *halo) 
   c->halo = halo;
   c->central = ctx->central;
   c->central_cold = ctx->central != NULL ? ctx->central->galaxy->RateFixtureCold : NAN;
+  c->central_id = ctx->central != NULL ? ctx->central->UniqueGalaxyID : -1;
+  c->time = ctx->time;
   c->phase_mark = discrete_phase_calls;
+}
+
+/** Clock law: a unit source into Cold, recording each call's RateContext.time */
+static int clock_rates(const struct RateContext *ctx, const struct Halo *halo,
+                       double *coefficients) {
+  record_call(ctx, halo);
+  coefficients[0] = 1.0;
+  return 0;
+}
+
+/** Central-feeding law: Cold to the central's Cold at 0.5 / (1 + the central's Cold) */
+static int central_feed_rates(const struct RateContext *ctx, const struct Halo *halo,
+                              double *coefficients) {
+  record_call(ctx, halo);
+  if (ctx->central == NULL) {
+    return 7;
+  }
+  coefficients[0] = 0.5 / (1.0 + ctx->central->galaxy->RateFixtureCold);
+  return 0;
+}
+
+/** A unit source into the Cold tracer alone, so the tracer overtakes an empty parent */
+static int spike_rates(const struct RateContext *ctx, const struct Halo *halo,
+                       double *coefficients) {
+  (void)ctx;
+  (void)halo;
+  coefficients[0] = 1.0;
+  return 0;
 }
 
 /** Counting law: feed into Cold, and a drain whose coefficient grows with the content */
@@ -351,6 +404,19 @@ static int ledger_consumer_process(struct ModuleContext *ctx, struct Halo *halos
   return 0;
 }
 
+/** Full-halo module that declares nothing: moves shuffle_amount of Cold from the central to
+ * workspace row 1, shuffle_count times, which conserves the total in exact arithmetic */
+static int ledger_shuffle_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  (void)ngal;
+  struct GalaxyData *central = halos[ctx->central_index].galaxy;
+  struct GalaxyData *other = halos[1].galaxy;
+  for (int k = 0; k < shuffle_count; k++) {
+    central->RateFixtureCold -= shuffle_amount;
+    other->RateFixtureCold += shuffle_amount;
+  }
+  return 0;
+}
+
 /** By-galaxy module that declares nothing: adds galaxy_adds to each galaxy's Cold */
 static int ledger_galaxy_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   (void)ctx;
@@ -481,6 +547,49 @@ static const struct RateTransfer nan_central_transfers[] = {
 static struct Module nan_central_probe =
     RATE_MODULE("nan_central_probe", nan_central_rates, nan_central_transfers, false);
 
+/* A unit source into Cold; reads the central only to make the group one component. */
+static const struct RateTransfer clock_transfers[] = {
+    TRANSFER("tick", 0, 185, RATE_TRANSFER_SOURCE, EXTERNAL, RESERVOIR_INDEX_RateFixtureCold, SELF,
+             -1, NULL),
+};
+static struct Module clock_probe = RATE_MODULE("clock_probe", clock_rates, clock_transfers, true);
+
+/* Cold into the central's Cold, at a coefficient read from the central. */
+static const struct RateTransfer central_feed_transfers[] = {
+    TRANSFER("fall", 0, 186, RATE_TRANSFER_INTERNAL, RESERVOIR_INDEX_RateFixtureCold,
+             RESERVOIR_INDEX_RateFixtureCold, RATE_TRANSFER_TO_CENTRAL, -1, NULL),
+};
+static struct Module central_feed_probe =
+    RATE_MODULE("central_feed_probe", central_feed_rates, central_feed_transfers, true);
+
+/* A source into the Cold tracer, the tracer's own. */
+static const struct RateTransfer spike_transfers[] = {
+    TRANSFER("spike", 0, 187, RATE_TRANSFER_SOURCE, EXTERNAL, RESERVOIR_INDEX_RateFixtureColdTracer,
+             SELF, -1, NULL),
+};
+static struct Module tracer_spike_probe =
+    RATE_MODULE("tracer_spike_probe", spike_rates, spike_transfers, false);
+
+/* One (property, transfer) observer declared twice, as stale generated metadata could carry. */
+static const struct RateTransfer twice_observer_transfers[] = {
+    TRANSFER("form", 0, 188, RATE_TRANSFER_INTERNAL, RESERVOIR_INDEX_RateFixtureCold,
+             RESERVOIR_INDEX_RateFixtureStars, SELF, -1, NULL),
+};
+static const struct RateObserver twice_observers[] = {
+    {.property = RESERVOIR_INDEX_RateFixtureFormed, .transfer = 0},
+    {.property = RESERVOIR_INDEX_RateFixtureFormed, .transfer = 0},
+};
+static struct Module twice_observer_probe = {.name = "twice_observer_probe",
+                                             .init = probe_init,
+                                             .cleanup = probe_cleanup,
+                                             .rates = idle_rates,
+                                             .supported_processing_modes = rates_modes,
+                                             .num_supported_modes = 1,
+                                             .rate_transfers = twice_observer_transfers,
+                                             .num_rate_transfers = 1,
+                                             .rate_observers = twice_observers,
+                                             .num_rate_observers = 2};
+
 /* Cold to Stars, observed into RateFixtureFormed. */
 static const struct RateTransfer observer_transfers[] = {
     TRANSFER("form", 0, 170, RATE_TRANSFER_INTERNAL, RESERVOIR_INDEX_RateFixtureCold,
@@ -515,6 +624,19 @@ static struct Module retire_probe = {.name = "retire_probe",
                                      .num_supported_modes = 1,
                                      .changes_totals = mass_total,
                                      .num_changes_totals = 1};
+/* The same retirement with no declaration: the row's content leaves the totals undeclared. */
+static struct Module retire_undeclared = {.name = "retire_undeclared",
+                                          .init = probe_init,
+                                          .cleanup = probe_cleanup,
+                                          .process = retire_process,
+                                          .supported_processing_modes = full_halo_modes,
+                                          .num_supported_modes = 1};
+static struct Module ledger_shuffler = {.name = "ledger_shuffler",
+                                        .init = probe_init,
+                                        .cleanup = probe_cleanup,
+                                        .process = ledger_shuffle_process,
+                                        .supported_processing_modes = full_halo_modes,
+                                        .num_supported_modes = 1};
 static struct Module fof_control = {.name = "fof_control",
                                     .init = probe_init,
                                     .cleanup = probe_cleanup,
@@ -603,7 +725,13 @@ static void ensure_probes_registered(void) {
                                &ledger_other,
                                &ledger_galaxy,
                                &ledger_galaxy_declarer,
-                               &stale_declarer};
+                               &stale_declarer,
+                               &clock_probe,
+                               &central_feed_probe,
+                               &tracer_spike_probe,
+                               &twice_observer_probe,
+                               &retire_undeclared,
+                               &ledger_shuffler};
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
       module_registry_add(probes[i]);
     }
@@ -619,13 +747,13 @@ static void ensure_probes_registered(void) {
 static void reset_rate_config(void) {
   reset_config();
   MimicConfig.SubSteps = 1;
-  MimicConfig.RateIntegration = (struct MimicRateIntegration){
-      .scheme = RATE_INTEGRATION_DEFAULT_SCHEME,
-      .relative_tolerance = RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
-      .absolute_tolerance = RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
-      .max_steps_per_segment = RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
-      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP,
-      .check_purity = RATE_INTEGRATION_DEFAULT_CHECK_PURITY};
+  MimicConfig.RateIntegration =
+      (struct MimicRateIntegration){.scheme = RATE_SCHEME_EXPLICIT,
+                                    .relative_tolerance = RATE_DEFAULT_RELATIVE_TOLERANCE,
+                                    .absolute_tolerance = RATE_DEFAULT_ABSOLUTE_TOLERANCE,
+                                    .max_steps_per_segment = RATE_DEFAULT_MAX_STEPS_PER_SEGMENT,
+                                    .max_rejections_per_step = RATE_DEFAULT_MAX_REJECTIONS_PER_STEP,
+                                    .check_purity = 0};
 }
 
 /** @brief Append one model parameter to the configuration */
@@ -751,6 +879,13 @@ static void config_bad_purity(void) {
   test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
   MimicConfig.RateIntegration.check_purity = 2;
 }
+static void config_small_rejection_budget(void) {
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  MimicConfig.RateIntegration.max_rejections_per_step = 19;
+}
+static void config_observer_twice(void) {
+  test_phase_add(RATE_PHASE, "twice_observer_probe", PROCESSING_MODE_RATES);
+}
 static void config_unsupported(void) {
   test_phase_add(RATE_PHASE, "fof_control", PROCESSING_MODE_RATES);
 }
@@ -821,6 +956,13 @@ int test_rate_phase_startup_rules(void) {
       {"check_purity out of range", config_bad_purity,
        "Configuration error in phase '" RATE_PHASE "'",
        "modules.rate_integration.check_purity has value 2"},
+      {"rejection budget below the minimum", config_small_rejection_budget,
+       "Configuration error in phase '" RATE_PHASE "'",
+       "modules.rate_integration.max_rejections_per_step has value 19; it must be at least 20"},
+      {"observer declared twice", config_observer_twice,
+       "Configuration error in phase '" RATE_PHASE "'",
+       "Module 'twice_observer_probe' declares the observer 'RateFixtureFormed' of transfer "
+       "'form' more than once"},
       {"mode not supported", config_unsupported, "Configuration error in phase '" RATE_PHASE "'",
        "Module 'fof_control' does not support processing mode 'process_rates'"},
       {"changes_totals name not in the reservoir table", config_stale_total,
@@ -854,13 +996,31 @@ static void master_present_body(const char *unused) {
   module_system_cleanup();
 }
 
+/** @brief Child body: a rejection budget of exactly 20 initialises */
+static void budget_at_minimum_body(const char *unused) {
+  (void)unused;
+  ensure_probes_registered();
+  reset_rate_config();
+  MimicConfig.RateIntegration.max_rejections_per_step = 20;
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    exit(2);
+  }
+  module_system_cleanup();
+}
+
 /**
- * @test    test_slaved_source_accepted_with_its_master
- * @brief   The refused slaved source initialises once its master's module is in the phase
+ * @test    test_refused_settings_accepted_at_their_limits
+ * @brief   The refused configurations initialise at their limits
+ *
+ * A slaved source initialises once its master's module is in the phase, and a
+ * rejection budget of 20, the smallest accepted, initialises.
  */
-int test_slaved_source_accepted_with_its_master(void) {
+int test_refused_settings_accepted_at_their_limits(void) {
   TEST_ASSERT_EQUAL(expect_success(NULL, master_present_body), 1,
                     "a slaved source and its master's module in one rate phase initialise");
+  TEST_ASSERT_EQUAL(expect_success(NULL, budget_at_minimum_body), 1,
+                    "a rejection budget of 20 initialises");
   return TEST_PASS;
 }
 
@@ -897,23 +1057,75 @@ int test_total_cycle_finder(void) {
   return TEST_PASS;
 }
 
+/* ==========================================================================
+ * The gather's domain
+ * ========================================================================== */
+
+/** One out-of-domain start entry: its row, property and value */
+struct DomainCase {
+  const char *name;
+  int row;
+  const char *property;
+  double value;
+};
+
+static const struct DomainCase domain_cases[] = {
+    {"negative reservoir", 1, "RateFixtureCold", -1.0e-20},
+    {"NaN reservoir", 0, "RateFixtureHot", NAN},
+    {"infinite tracer", 1, "RateFixtureColdTracer", INFINITY},
+};
+
+/** @brief Child body: domain case @p arg ("0", "1", ...) reaches the rate phase */
+static void domain_body(const char *arg) {
+  static const int types[2] = {0, 1};
+  static const double cold[2] = {1.0, 0.5};
+  const struct DomainCase *c = &domain_cases[atoi(arg)];
+  ensure_probes_registered();
+  reset_rate_config();
+  reset_probes();
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    return;
+  }
+  build_workspace(types, cold, 2);
+  struct GalaxyData *g = workspace.halos[c->row].galaxy;
+  if (strcmp(c->property, "RateFixtureCold") == 0) {
+    g->RateFixtureCold = c->value;
+  } else if (strcmp(c->property, "RateFixtureHot") == 0) {
+    g->RateFixtureHot = c->value;
+  } else {
+    g->RateFixtureColdTracer = c->value;
+  }
+  run_pipeline();
+}
+
 /**
- * @test    test_defaults_match_integrator
- * @brief   The run-file defaults (constants.h) equal the integrator's own defaults
+ * @test    test_gather_refuses_out_of_domain_start
+ * @brief   A negative, NaN or infinite entry at segment start ends the run, naming it
+ *
+ * Each case leaves one reservoir or tracer of one row outside the domain before
+ * the rate phase; the run ends naming the row, its UniqueGalaxyID, the
+ * property and the value (formatted here with %.17g), and saying where the
+ * value came from.
  */
-int test_defaults_match_integrator(void) {
-  struct RateIntegratorSettings settings;
-  rate_integrator_default_settings(&settings);
-  TEST_ASSERT_EQUAL((int)settings.scheme, RATE_INTEGRATION_DEFAULT_SCHEME, "default scheme");
-  TEST_ASSERT(settings.relative_tolerance == RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
-              "default relative tolerance");
-  TEST_ASSERT(settings.absolute_tolerance == RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
-              "default absolute tolerance");
-  TEST_ASSERT(settings.max_steps_per_segment == RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
-              "default step budget");
-  TEST_ASSERT_EQUAL(settings.max_rejections_per_step,
-                    RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP, "default rejection budget");
-  TEST_ASSERT_EQUAL(RATE_INTEGRATION_DEFAULT_CHECK_PURITY, 0, "the purity probe is off by default");
+int test_gather_refuses_out_of_domain_start(void) {
+  for (size_t i = 0; i < sizeof(domain_cases) / sizeof(domain_cases[0]); i++) {
+    const struct DomainCase *c = &domain_cases[i];
+    char arg[8];
+    char needle[256];
+    snprintf(arg, sizeof(arg), "%zu", i);
+    snprintf(needle, sizeof(needle),
+             "workspace row %d (UniqueGalaxyID %d, Type %d) enters the rate segment with %s = "
+             "%.17g",
+             c->row, ROW_ID_BASE + c->row, c->row == 0 ? 0 : 1, c->property, c->value);
+    const int ok = expect_fatal(arg, domain_body, needle,
+                                "The value was left before the segment, by a discrete phase or by "
+                                "initialisation");
+    if (ok != 1) {
+      fprintf(stderr, "  domain case: %s\n", c->name);
+    }
+    TEST_ASSERT_EQUAL(ok, 1, "an out-of-domain start entry is fatal, naming row and property");
+  }
   return TEST_PASS;
 }
 
@@ -1074,6 +1286,159 @@ int test_stripping_couples_the_group(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_row_mapping_with_retired_row_ahead_of_central
+ * @brief   A whole-group component maps its rows to the right workspace rows
+ *
+ * Workspace rows: 0 retired (Type 3, holding content), 1 a satellite, 2 the
+ * central (not row 0), 3 a satellite. central_feed_probe reads the central and
+ * moves each row's Cold into the central's. Every law call's central view is
+ * workspace row 2's galaxy, no law runs for row 0 and its galaxy is bitwise
+ * unchanged, the satellites lose Cold to the central, and the active rows'
+ * Cold total closes to rounding (the transfer is internal).
+ */
+int test_row_mapping_with_retired_row_ahead_of_central(void) {
+  static const int types[4] = {3, 1, 0, 1};
+  static const double cold[4] = {5.0, 1.0, 2.0, 0.5};
+  reset_rate_config();
+  reset_probes();
+  test_phase_add(RATE_PHASE, "central_feed_probe", PROCESSING_MODE_RATES);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "the phase initialises");
+  build_workspace(types, cold, 4);
+  context.central_index = 2;
+  context.central_galaxy = &workspace.halos[2];
+  const struct GalaxyData retired_before = *workspace.halos[0].galaxy;
+  run_pipeline();
+
+  bool central_view_right = num_calls > 0;
+  int retired_calls = 0;
+  for (int i = 0; i < num_calls; i++) {
+    central_view_right &= (calls[i].central_id == ROW_ID_BASE + 2);
+    retired_calls += (calls[i].row == 0);
+  }
+  TEST_ASSERT(central_view_right, "every law sees workspace row 2's galaxy as the central");
+  TEST_ASSERT_EQUAL(retired_calls, 0, "no law runs for the retired row");
+  TEST_ASSERT(memcmp(&retired_before, workspace.halos[0].galaxy, sizeof(struct GalaxyData)) == 0,
+              "the retired row's galaxy is bitwise unchanged");
+
+  const double sat_a = workspace.halos[1].galaxy->RateFixtureCold;
+  const double central = workspace.halos[2].galaxy->RateFixtureCold;
+  const double sat_b = workspace.halos[3].galaxy->RateFixtureCold;
+  TEST_ASSERT(sat_a < cold[1] && sat_b < cold[3] && central > cold[2],
+              "the satellites' Cold went to the central's");
+  /* Internal transfers conserve the total to rounding: a few units of 2^-53 of it per step. */
+  const double start_total = cold[1] + cold[2] + cold[3];
+  const double end_total = sat_a + central + sat_b;
+  TEST_ASSERT(fabs(end_total - start_total) <= 1.0e3 * 0x1p-53 * start_total,
+              "the active rows' Cold total closes");
+  release_case();
+  return TEST_PASS;
+}
+
+/* ==========================================================================
+ * The clocks
+ * ========================================================================== */
+
+/** The SSPRK(4,3) stage times of one step, as fractions of the step: c = (0, 1/2, 1, 1/2) */
+static const double stage_c[4] = {0.0, 0.5, 1.0, 0.5};
+
+/**
+ * @test    test_law_time_follows_each_rows_clock
+ * @brief   Each row's law time is ctx->time + dT_r - (substep + tau) Delta_r
+ *
+ * Two rows with dT 0.5 and 0.75, two substeps, so Delta_r = dT_r / 2, and
+ * clock_probe's unit source (the group one component, since it reads the
+ * central). With only a source no entry has an outflow, so each segment is one
+ * step over the whole segment: four evaluations at tau = c, each covering both
+ * rows in row order. Every evaluation's law time matches the formula computed
+ * here, and each row ends holding the unit source over the two substeps,
+ * exactly dT_r.
+ */
+int test_law_time_follows_each_rows_clock(void) {
+  static const int types[2] = {0, 1};
+  static const double cold[2] = {0.0, 0.0};
+  const int substeps = 2;
+  reset_rate_config();
+  reset_probes();
+  MimicConfig.SubSteps = substeps;
+  test_phase_add(RATE_PHASE, "clock_probe", PROCESSING_MODE_RATES);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "the phase initialises");
+  build_workspace(types, cold, 2);
+  context.num_substeps = substeps;
+  const double base_time = context.time;
+  double dT[2];
+  for (int r = 0; r < 2; r++) {
+    dT[r] = workspace.halos[r].dT;
+  }
+  TEST_ASSERT(dT[0] != dT[1], "the two rows have different dT");
+  run_pipeline();
+
+  TEST_ASSERT_EQUAL(num_calls, substeps * 4 * 2, "one step of four evaluations of two rows");
+  int mismatches = 0;
+  for (int s = 0; s < substeps; s++) {
+    for (int e = 0; e < 4; e++) {
+      for (int r = 0; r < 2; r++) {
+        const struct LawCall *c = &calls[(s * 4 + e) * 2 + r];
+        const double delta = dT[r] / (double)substeps;
+        const double expected = base_time + dT[r] - ((double)s + stage_c[e]) * delta;
+        if (c->row != r || c->time != expected) {
+          fprintf(stderr, "  substep %d stage %d row %d: law time %.17g, expected %.17g\n", s, e,
+                  c->row, c->time, expected);
+          mismatches++;
+        }
+      }
+    }
+  }
+  TEST_ASSERT_EQUAL(mismatches, 0, "every evaluation's law time follows the row's clock");
+  for (int r = 0; r < 2; r++) {
+    TEST_ASSERT(workspace.halos[r].galaxy->RateFixtureCold == dT[r],
+                "a unit source over the substeps brings exactly dT_r");
+  }
+  release_case();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_sentinel_row_beside_a_positive_delta_row
+ * @brief   A first-snapshot sentinel row sees the base time and has Delta = 0
+ *
+ * Row 0 has dT 0.5; row 1 carries the sentinel (SnapNum -1, dT -1). clock_probe
+ * reads the central, so both rows are one component and the sentinel row's law
+ * is evaluated. Its law time is ctx->time at every evaluation, and its own unit
+ * source moves nothing (Delta = 0), while row 0 receives exactly dT_0.
+ */
+int test_sentinel_row_beside_a_positive_delta_row(void) {
+  static const int types[2] = {0, 1};
+  static const double cold[2] = {0.0, 0.0};
+  reset_rate_config();
+  reset_probes();
+  test_phase_add(RATE_PHASE, "clock_probe", PROCESSING_MODE_RATES);
+  TEST_ASSERT_EQUAL(module_system_init(), 0, "the phase initialises");
+  build_workspace(types, cold, 2);
+  workspace.halos[1].SnapNum = -1;
+  workspace.halos[1].dT = -1.0;
+  const double base_time = context.time;
+  const double dT0 = workspace.halos[0].dT;
+  run_pipeline();
+
+  int sentinel_calls = 0;
+  bool base_time_seen = true;
+  for (int i = 0; i < num_calls; i++) {
+    if (calls[i].row == 1) {
+      sentinel_calls++;
+      base_time_seen &= (calls[i].time == base_time);
+    }
+  }
+  TEST_ASSERT(sentinel_calls > 0, "the sentinel row's law is evaluated");
+  TEST_ASSERT(base_time_seen, "the sentinel row's law time is ctx->time");
+  TEST_ASSERT(workspace.halos[1].galaxy->RateFixtureCold == 0.0,
+              "the sentinel row's own source moves nothing: its Delta is 0");
+  TEST_ASSERT(workspace.halos[0].galaxy->RateFixtureCold == dT0,
+              "the positive-Delta row receives exactly dT_0");
+  release_case();
+  return TEST_PASS;
+}
+
 /* ==========================================================================
  * The first-snapshot sentinel
  * ========================================================================== */
@@ -1224,8 +1589,53 @@ int test_nan_law_is_fatal(void) {
  * The failure file and the purity probe
  * ========================================================================== */
 
+/** @brief Child body: a source into the Cold tracer of an empty row overtakes its parent */
+static void tracer_spike_body(const char *unused) {
+  (void)unused;
+  static const int types[1] = {0};
+  static const double cold[1] = {0.0};
+  ensure_probes_registered();
+  reset_rate_config();
+  test_phase_add(RATE_PHASE, "tracer_spike_probe", PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    return;
+  }
+  build_workspace(types, cold, 1);
+  run_pipeline();
+}
+
+/**
+ * @test    test_tracer_bound_failure_names_its_fields
+ * @brief   A tracer_bound failure names its source, total, tracer and galaxy, and nothing absent
+ *
+ * The tracer's own source fills it while its parent stays empty, so the
+ * segment fails tracer_bound. The one-line message names the source's module
+ * and transfer, the tracer's total, the tracer and the row, and prints no
+ * "(none)" placeholder.
+ */
+int test_tracer_bound_failure_names_its_fields(void) {
+  char captured[CHILD_CAPTURE_BYTES];
+  const int ok = expect_fatal_capture(
+      NULL, tracer_spike_body,
+      "Rate segment failed: cause tracer_bound, module 'tracer_spike_probe', transfer 'spike', "
+      "total 'rate_fixture_tracer', entry 'RateFixtureColdTracer', workspace row 0 "
+      "(UniqueGalaxyID 1000), tau ",
+      "  total 'rate_fixture_tracer'", captured, sizeof(captured));
+  TEST_ASSERT_EQUAL(ok, 1, "the tracer_bound failure names source, total, tracer and row");
+  TEST_ASSERT(strstr(captured, "(none)") == NULL, "no field is printed as (none)");
+  return TEST_PASS;
+}
+
 /** The failure-file test's output directory, made before the child runs */
 static char failure_dir[MAX_STRING_LEN];
+
+/** @brief Make the temporary output directory the failure-file cases write into */
+static int make_failure_dir(void) {
+  const char *tmp = getenv("TMPDIR");
+  snprintf(failure_dir, sizeof(failure_dir), "%s/mimic_rate_failure_XXXXXX",
+           tmp != NULL && tmp[0] != '\0' ? tmp : "/tmp");
+  return mkdtemp(failure_dir) != NULL;
+}
 
 /** @brief Child body: nan_body with the output directory set, so the failure file is written */
 static void failure_file_body(const char *unused) {
@@ -1240,6 +1650,7 @@ static void failure_file_body(const char *unused) {
     return;
   }
   build_workspace(types, cold, 1);
+  context.redshift = 0.5;
   run_pipeline();
 }
 
@@ -1265,103 +1676,6 @@ static char *read_text_file(const char *path) {
  * the segment-start state and the failing evaluation's coefficient as
  * hexadecimal floats (1 is 0x1p+0, 0.5 is 0x1p-1; a NaN carries its bits).
  */
-int test_failure_file_holds_the_segment(void) {
-  const char *tmp = getenv("TMPDIR");
-  snprintf(failure_dir, sizeof(failure_dir), "%s/mimic_rate_failure_XXXXXX",
-           tmp != NULL && tmp[0] != '\0' ? tmp : "/tmp");
-  TEST_ASSERT(mkdtemp(failure_dir) != NULL, "a temporary output directory is made");
-
-  const int ok = expect_fatal(NULL, failure_file_body, "module 'nan_probe', transfer 'poison'",
-                              "failure file: ");
-  TEST_ASSERT_EQUAL(ok, 1, "the failing run ends fatally and names its failure file");
-
-  char path[MAX_STRING_LEN + 64];
-  snprintf(path, sizeof(path), "%s/rate_failure_task0.txt", failure_dir);
-  char *text = read_text_file(path);
-  TEST_ASSERT(text != NULL, "rate_failure_task0.txt exists in the output directory");
-  static const char *const wanted[] = {
-      "cause: bad_coefficient\n",
-      "module: nan_probe\n",
-      "transfer: poison\n",
-      "task: 0\n",
-      "check_purity: false\n",
-      "rows: 1\n",
-      "row 0 workspace_row 0 unique_galaxy_id 1000 type 0 dT 0x1p-1 delta 0x1p-1\n",
-      "state 0 1 RateFixtureCold 0x1p+0\n",
-      "state 0 0 RateFixtureHot 0x0p+0\n",
-      "coefficient 0 nan_probe.poison nan bits=0x7ff8000000000000\n"};
-  int missing = 0;
-  for (size_t i = 0; text != NULL && i < sizeof(wanted) / sizeof(wanted[0]); i++) {
-    if (strstr(text, wanted[i]) == NULL) {
-      fprintf(stderr, "  failure file lacks: %s", wanted[i]);
-      missing++;
-    }
-  }
-  TEST_ASSERT_EQUAL(missing, 0, "the failure file holds the cause, row clock, state and law");
-  free(text);
-  unlink(path);
-  rmdir(failure_dir);
-  return TEST_PASS;
-}
-
-/** @brief Make the temporary output directory the failure-file cases write into */
-static int make_failure_dir(void) {
-  const char *tmp = getenv("TMPDIR");
-  snprintf(failure_dir, sizeof(failure_dir), "%s/mimic_rate_failure_XXXXXX",
-           tmp != NULL && tmp[0] != '\0' ? tmp : "/tmp");
-  return mkdtemp(failure_dir) != NULL;
-}
-
-/**
- * @brief   Child body: a failing component that follows or sits beside others
- *
- * @param   arg  "zero_delta": row 0 integrates normally and leaves coefficients in the scratch,
- *               then row 1, a first-snapshot sentinel row (Delta 0, no law runs) holding a
- *               tracer above its parent, fails the tracer bound before any law ran.
- *               "mid_row": a three-row group (one component) whose second module's law returns
- *               non-zero on row 1 after the rest of row 1's laws and every law of row 0 ran.
- */
-static void failure_case_body(const char *arg) {
-  static const int types[3] = {0, 1, 2};
-  static const double cold_sentinel[3] = {0.0, 0.5, 0.0};
-  static const double cold_empty[3] = {0.0, 0.0, 0.0};
-  const bool zero_delta = strcmp(arg, "zero_delta") == 0;
-  ensure_probes_registered();
-  reset_rate_config();
-  reset_probes();
-  feed_rate = 0.5;
-  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", failure_dir);
-  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
-  if (!zero_delta) {
-    test_phase_add(RATE_PHASE, "fail_on_satellite_probe", PROCESSING_MODE_RATES);
-  }
-  if (module_system_init() != 0) {
-    return;
-  }
-  if (zero_delta) {
-    build_workspace(types, cold_sentinel, 2);
-    workspace.halos[1].SnapNum = -1;
-    workspace.halos[1].dT = 0.0;
-    workspace.halos[1].galaxy->RateFixtureColdTracer = 1.0;
-  } else {
-    build_workspace(types, cold_empty, 3);
-  }
-  run_pipeline();
-}
-
-/** @brief Whether @p text has a line starting with @p prefix */
-static bool has_line_starting(const char *text, const char *prefix) {
-  const size_t length = strlen(prefix);
-  for (const char *line = text; line != NULL && *line != '\0';) {
-    if (strncmp(line, prefix, length) == 0) {
-      return true;
-    }
-    line = strchr(line, '\n');
-    line = line != NULL ? line + 1 : NULL;
-  }
-  return false;
-}
-
 /** @brief Read the failure file the case wrote, then remove it and the directory */
 static char *take_failure_file(void) {
   char path[MAX_STRING_LEN + 64];
@@ -1372,39 +1686,93 @@ static char *take_failure_file(void) {
   return text;
 }
 
+/** @brief Count the lines of @p wanted that @p text lacks, naming each; NULL text lacks all */
+static int count_missing(const char *text, const char *const *wanted, size_t count) {
+  int missing = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (text == NULL || strstr(text, wanted[i]) == NULL) {
+      fprintf(stderr, "  failure file lacks: %s", wanted[i]);
+      missing++;
+    }
+  }
+  return missing;
+}
+
+/**
+ * @test    test_failure_file_holds_the_segment
+ * @brief   A failed segment writes rate_failure_task0.txt before the run ends
+ *
+ * A one-row component with Cold = 1 and dT = 0.5 at time 1 and redshift 0.5
+ * whose law returns NaN: the file names the build, the cause, module and
+ * transfer, and holds the base time, redshift, the row's dT and Delta, the
+ * segment-start state and the failing evaluation's coefficient as hexadecimal
+ * floats (1 is 0x1p+0, 0.5 is 0x1p-1; a NaN carries its bits). The directory
+ * is removed before any assertion, so a failing one leaves nothing behind.
+ */
+int test_failure_file_holds_the_segment(void) {
+  TEST_ASSERT(make_failure_dir(), "a temporary output directory is made");
+  const int ok = expect_fatal(NULL, failure_file_body, "module 'nan_probe', transfer 'poison'",
+                              "failure file: ");
+  char *text = take_failure_file();
+  static const char *const wanted[] = {
+      "mimic_version: ",
+      "git_commit: ",
+      "base_time: 0x1p+0\n",
+      "redshift: 0x1p-1\n",
+      "cause: bad_coefficient\n",
+      "module: nan_probe\n",
+      "transfer: poison\n",
+      "task: 0\n",
+      "check_purity: false\n",
+      "rows: 1\n",
+      "row 0 workspace_row 0 unique_galaxy_id 1000 type 0 dT 0x1p-1 delta 0x1p-1\n",
+      "state 0 1 RateFixtureCold 0x1p+0\n",
+      "state 0 0 RateFixtureHot 0x0p+0\n",
+      "coefficient 0 nan_probe.poison nan bits=0x7ff8000000000000\n"};
+  const int missing = count_missing(text, wanted, sizeof(wanted) / sizeof(wanted[0]));
+  const bool found = text != NULL;
+  free(text);
+  TEST_ASSERT_EQUAL(ok, 1, "the failing run ends fatally and names its failure file");
+  TEST_ASSERT(found, "rate_failure_task0.txt exists in the output directory");
+  TEST_ASSERT_EQUAL(missing, 0, "the failure file holds the build, clocks, cause, state and law");
+  return TEST_PASS;
+}
+
+/**
+ * @brief   Child body: a three-row group (one component) whose second module's law returns
+ *          non-zero on row 1 after the rest of row 1's laws and every law of row 0 ran
+ */
+static void failure_case_body(const char *arg) {
+  static const int types[3] = {0, 1, 2};
+  static const double cold_empty[3] = {0.0, 0.0, 0.0};
+  (void)arg;
+  ensure_probes_registered();
+  reset_rate_config();
+  reset_probes();
+  feed_rate = 0.5;
+  snprintf(MimicConfig.OutputDir, sizeof(MimicConfig.OutputDir), "%s", failure_dir);
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  test_phase_add(RATE_PHASE, "fail_on_satellite_probe", PROCESSING_MODE_RATES);
+  if (module_system_init() != 0) {
+    return;
+  }
+  build_workspace(types, cold_empty, 3);
+  run_pipeline();
+}
+
 /**
  * @test    test_failure_file_never_invents_coefficients
  * @brief   The file lists only coefficients a law evaluation produced
  *
- * Zero-Delta case: component 1 fails its tracer bound before any law ran, after
- * component 0 filled the scratch with coefficients; the file says no law was
- * evaluated and lists no coefficient line. Mid-group case: the second module's
- * law returns non-zero on row 1, so row 0's and row 1's first-module
- * coefficients are exact hex floats and everything after the failing call is
- * marked not_evaluated.
+ * The second module's law returns non-zero on row 1, so row 0's and row 1's
+ * first-module coefficients are exact hex floats and everything after the
+ * failing call is marked not_evaluated.
  */
 int test_failure_file_never_invents_coefficients(void) {
   TEST_ASSERT(make_failure_dir(), "a temporary output directory is made");
-  int ok = expect_fatal("zero_delta", failure_case_body, "cause tracer_bound", "failure file: ");
-  TEST_ASSERT_EQUAL(ok, 1, "the zero-Delta tracer-bound failure ends the run");
+  const int ok = expect_fatal("mid_row", failure_case_body, "module 'fail_on_satellite_probe'",
+                              "failure file: ");
   char *text = take_failure_file();
-  TEST_ASSERT(text != NULL, "the zero-Delta failure wrote its file");
-  TEST_ASSERT(strstr(text, "cause: tracer_bound\n") != NULL, "the file names the cause");
-  TEST_ASSERT(strstr(text, "law_evaluations_begun: 0\n") != NULL, "no evaluation had begun");
-  TEST_ASSERT(strstr(text, "failing_evaluation_tau: none\n") != NULL, "no evaluation tau");
-  TEST_ASSERT(strstr(text, "coefficients: no law was evaluated\n") != NULL,
-              "the file says no law was evaluated");
-  TEST_ASSERT(!has_line_starting(text, "coefficient "), "no coefficient line is listed");
-  TEST_ASSERT(strstr(text, "state 0 1 RateFixtureCold 0x1p-1\n") != NULL,
-              "the segment-start state is still listed");
-  free(text);
-
-  TEST_ASSERT(make_failure_dir(), "a second temporary output directory is made");
-  ok = expect_fatal("mid_row", failure_case_body, "module 'fail_on_satellite_probe'",
-                    "failure file: ");
-  TEST_ASSERT_EQUAL(ok, 1, "the mid-group law failure ends the run");
-  text = take_failure_file();
-  TEST_ASSERT(text != NULL, "the mid-group failure wrote its file");
   static const char *const wanted[] = {
       "law_evaluations_begun: 1\n",
       "coefficient 0 count_probe.feed 0x1p-1\n",
@@ -1416,15 +1784,12 @@ int test_failure_file_never_invents_coefficients(void) {
       "coefficient 2 count_probe.feed not_evaluated\n",
       "coefficient 2 count_probe.drain not_evaluated\n",
       "coefficient 2 fail_on_satellite_probe.boom not_evaluated\n"};
-  int missing = 0;
-  for (size_t i = 0; i < sizeof(wanted) / sizeof(wanted[0]); i++) {
-    if (strstr(text, wanted[i]) == NULL) {
-      fprintf(stderr, "  failure file lacks: %s", wanted[i]);
-      missing++;
-    }
-  }
-  TEST_ASSERT_EQUAL(missing, 0, "evaluated coefficients are exact and the rest not_evaluated");
+  const int missing = count_missing(text, wanted, sizeof(wanted) / sizeof(wanted[0]));
+  const bool found = text != NULL;
   free(text);
+  TEST_ASSERT_EQUAL(ok, 1, "the mid-group law failure ends the run");
+  TEST_ASSERT(found, "the mid-group failure wrote its file");
+  TEST_ASSERT_EQUAL(missing, 0, "evaluated coefficients are exact and the rest not_evaluated");
   return TEST_PASS;
 }
 
@@ -1676,9 +2041,11 @@ int test_failure_names_the_evaluating_row(void) {
  * @test    test_law_sees_observer_at_segment_start
  * @brief   A law reading an observer sees its segment-start value; write-back adds the amounts
  *
- * Stars and the observer RateFixtureFormed start at the same value and receive
- * the same committed amounts, so they end bit-identical; every evaluation of
- * the law sees the observer at its start value.
+ * The observer RateFixtureFormed starts at 0.25 and Stars, the transfer's only
+ * recipient, at 0, so Stars ends at the sum of the committed amounts, formed in
+ * step order exactly as the integrator sums the transfer's flux amount; the
+ * written-back observer is its start plus that amount, 0.25 + Stars, bit for
+ * bit. Every evaluation of the law sees the observer at its start value.
  */
 int test_law_sees_observer_at_segment_start(void) {
   static const int types[1] = {0};
@@ -1689,7 +2056,7 @@ int test_law_sees_observer_at_segment_start(void) {
   TEST_ASSERT_EQUAL(module_system_init(), 0, "the phase initialises");
   build_workspace(types, cold, 1);
   struct GalaxyData *g = workspace.halos[0].galaxy;
-  g->RateFixtureStars = 0.25;
+  g->RateFixtureStars = 0.0;
   g->RateFixtureFormed = 0.25;
   run_pipeline();
 
@@ -1700,7 +2067,8 @@ int test_law_sees_observer_at_segment_start(void) {
   }
   TEST_ASSERT(constant, "every evaluation saw the observer at its segment-start value");
   TEST_ASSERT(g->RateFixtureFormed > 0.25, "the observer accumulated the formed amount");
-  TEST_ASSERT(memcmp(&g->RateFixtureFormed, &g->RateFixtureStars, sizeof(double)) == 0,
+  const double expected = 0.25 + g->RateFixtureStars;
+  TEST_ASSERT(memcmp(&g->RateFixtureFormed, &expected, sizeof(double)) == 0,
               "the written-back observer is its start plus the committed amounts");
   release_case();
   return TEST_PASS;
@@ -1864,18 +2232,12 @@ int test_ledger_hook_needs_a_rate_phase(void) {
   return TEST_PASS;
 }
 
-/**
- * @test    test_ledger_counts_a_covered_change
- * @brief   A producer's change is covered by its subscribed consumer's declaration, and counted
- *
- * Two substeps of [rates (count_probe), events (ledger_producer, ledger_consumer)]:
- * the producer adds mass undeclared, and the per-event consumer that subscribes
- * to it declares the mass total, so the run completes and the mass total's
- * declared-change count is one per substep; the tracer total's is zero.
- */
-int test_ledger_counts_a_covered_change(void) {
+/** @brief Child body of test_ledger_counts_a_covered_change(): exits 0 when every count holds */
+static void covered_change_body(const char *unused) {
+  (void)unused;
   static const int types[2] = {0, 1};
   static const double cold[2] = {2.0, 0.5};
+  ensure_probes_registered();
   reset_rate_config();
   reset_probes();
   producer_adds = 0.5;
@@ -1883,21 +2245,50 @@ int test_ledger_counts_a_covered_change(void) {
   test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
   test_phase_add("events", "ledger_producer", PROCESSING_MODE_FULL_HALO);
   test_phase_add("events", "ledger_consumer", PROCESSING_MODE_PER_EVENT);
-  TEST_ASSERT_EQUAL(module_system_init(), 0, "the phases initialise");
+  test_phase_add("events", "ledger_other", PROCESSING_MODE_FULL_HALO);
+  if (module_system_init() != 0) {
+    exit(2);
+  }
   build_workspace(types, cold, 2);
   context.num_substeps = 2;
   run_pipeline();
   const struct RateStatistics *stats = module_rate_statistics();
-  TEST_ASSERT(stats != NULL, "a rate phase has statistics");
   const int mass = total_index("rate_fixture_mass");
   const int tracer = total_index("rate_fixture_tracer");
-  TEST_ASSERT(mass >= 0 && tracer >= 0, "the fixture totals exist");
-  TEST_ASSERT_EQUAL((int)stats->counts.declared_changes[mass], 2,
-                    "the covered change is counted once per substep");
-  TEST_ASSERT_EQUAL((int)stats->counts.declared_changes[tracer], 0,
-                    "an unchanged total is not counted");
-  TEST_ASSERT_EQUAL(module_discrete_ledger_units(), 2, "one full-halo unit per substep");
+  if (stats == NULL || mass < 0 || tracer < 0) {
+    fprintf(stderr, "no statistics, or the fixture totals are missing\n");
+    exit(3);
+  }
+  if (stats->counts.declared_changes[mass] != 2 || stats->counts.declared_changes[tracer] != 0 ||
+      module_discrete_ledger_units() != 4) {
+    fprintf(stderr,
+            "declared changes: mass %llu (want 2, one per substep), tracer %llu (want 0); "
+            "units %lld (want 4, two full-halo units per substep)\n",
+            (unsigned long long)stats->counts.declared_changes[mass],
+            (unsigned long long)stats->counts.declared_changes[tracer],
+            (long long)module_discrete_ledger_units());
+    exit(3);
+  }
   release_case();
+}
+
+/**
+ * @test    test_ledger_counts_a_covered_change
+ * @brief   A producer's change is covered by its subscribed consumer's declaration, and counted
+ *
+ * Two substeps of [rates (count_probe), events (ledger_producer, ledger_consumer,
+ * ledger_other)]: the producer adds mass undeclared, and the per-event consumer
+ * that subscribes to it declares the mass total, so the run completes and the
+ * mass total's declared-change count is one per substep; the tracer total's is
+ * zero. ledger_other, a second unit after the producer's, changes nothing and
+ * declares nothing: its before-sums are the producer unit's after-sums, so the
+ * producer's change is not charged to it. The run is a child process, so a
+ * unit wrongly charged ends only the child.
+ */
+int test_ledger_counts_a_covered_change(void) {
+  TEST_ASSERT_EQUAL(expect_success(NULL, covered_change_body), 1,
+                    "the covered change is counted once per substep, and the next unit is not "
+                    "charged with it");
   return TEST_PASS;
 }
 
@@ -1981,6 +2372,155 @@ int test_ledger_by_galaxy_pass_is_one_unit(void) {
   TEST_ASSERT_EQUAL(fatal, 1, "an undeclared by-galaxy change is fatal, naming the pass");
   TEST_ASSERT_EQUAL(expect_success("declared", by_galaxy_change_body), 1,
                     "a declaring by-galaxy module covers the pass, and the change is counted");
+  return TEST_PASS;
+}
+
+/** @brief Sum of the mass total's magnitudes over the workspace's active rows */
+static double active_mass_magnitude(void) {
+  double sum = 0.0;
+  for (int64_t w = 0; w < workspace.count; w++) {
+    const struct GalaxyData *g = workspace.halos[w].galaxy;
+    if (g != NULL && workspace.halos[w].Type != 3) {
+      sum += fabs(g->RateFixtureHot) + fabs(g->RateFixtureCold) + fabs(g->RateFixtureStars);
+    }
+  }
+  return sum;
+}
+
+/** Sub-ulp exchanges of the rounding case: each moves a quarter of an ulp of the central's 1 */
+#define SHUFFLE_COUNT 4000
+#define SHUFFLE_AMOUNT 0x1p-55
+
+/**
+ * @brief   Child body: one discrete case beside a rate phase, selected by @p arg
+ *
+ * - "inf_undeclared": ledger_other makes the central's Cold +Inf, declaring nothing
+ * - "inf_declared": ledger_producer does, and its subscribed consumer declares the total
+ * - "rearrange": ledger_shuffler moves 0.75 of the central's Cold 2 to row 1 once
+ * - "rounding": ledger_shuffler moves SHUFFLE_AMOUNT from a central Cold of 1 to an empty
+ *   row 1, SHUFFLE_COUNT times
+ * - "relative": ledger_other adds 1e-9 of the mass total's magnitude, declaring nothing
+ * - "retire": retire_undeclared retires row 2 while it holds Cold
+ *
+ * The discrete phase runs after the rate phase, in one substep. count_probe's
+ * coefficients are zero (no feed, no drain), so the rate phase leaves every
+ * row exactly as set here and the discrete unit starts from it.
+ */
+static void ledger_case_body(const char *arg) {
+  static const int types[3] = {0, 1, 2};
+  static const double cold[3] = {2.0, 0.5, 1.0};
+  const bool by_other = strcmp(arg, "inf_undeclared") == 0 || strcmp(arg, "relative") == 0;
+  ensure_probes_registered();
+  reset_rate_config();
+  reset_probes();
+  drain_rate = 0.0;
+  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  if (by_other) {
+    test_phase_add("events", "ledger_other", PROCESSING_MODE_FULL_HALO);
+  } else if (strcmp(arg, "inf_declared") == 0) {
+    test_phase_add("events", "ledger_producer", PROCESSING_MODE_FULL_HALO);
+    test_phase_add("events", "ledger_consumer", PROCESSING_MODE_PER_EVENT);
+  } else if (strcmp(arg, "retire") == 0) {
+    test_phase_add("events", "retire_undeclared", PROCESSING_MODE_FULL_HALO);
+  } else {
+    test_phase_add("events", "ledger_shuffler", PROCESSING_MODE_FULL_HALO);
+  }
+  if (module_system_init() != 0) {
+    exit(2);
+  }
+  build_workspace(types, cold, 3);
+  if (strcmp(arg, "inf_undeclared") == 0) {
+    other_adds = INFINITY;
+  } else if (strcmp(arg, "inf_declared") == 0) {
+    producer_adds = INFINITY;
+  } else if (strcmp(arg, "relative") == 0) {
+    other_adds = 1.0e-9 * active_mass_magnitude();
+  } else if (strcmp(arg, "rearrange") == 0) {
+    shuffle_count = 1;
+    shuffle_amount = 0.75;
+  } else if (strcmp(arg, "rounding") == 0) {
+    workspace.halos[0].galaxy->RateFixtureCold = 1.0;
+    workspace.halos[1].galaxy->RateFixtureCold = 0.0;
+    workspace.halos[2].galaxy->RateFixtureCold = 0.0;
+    shuffle_count = SHUFFLE_COUNT;
+    shuffle_amount = SHUFFLE_AMOUNT;
+  }
+  run_pipeline();
+  release_case();
+}
+
+/**
+ * @test    test_ledger_refuses_a_non_finite_total
+ * @brief   A total made infinite is fatal in the unit that made it, declared or not
+ *
+ * Without the check an infinite after-sum gives an infinite tolerance and the
+ * unit passes; a declared change is merely counted.
+ */
+int test_ledger_refuses_a_non_finite_total(void) {
+  TEST_ASSERT_EQUAL(expect_fatal("inf_undeclared", ledger_case_body,
+                                 "Conserved total 'rate_fixture_mass' is not finite after module "
+                                 "'ledger_other' (process_full_halo, with the per-event modules "
+                                 "its events trigger) in phase 'events'",
+                                 "left conserved total 'rate_fixture_mass' not finite"),
+                    1, "an undeclared change to +Inf is fatal, naming the module and total");
+  TEST_ASSERT_EQUAL(expect_fatal("inf_declared", ledger_case_body,
+                                 "Conserved total 'rate_fixture_mass' is not finite after module "
+                                 "'ledger_producer'",
+                                 "no changes_totals declaration covers"),
+                    1, "a declared change to +Inf is fatal all the same");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_ledger_tolerance
+ * @brief   Rearrangement and a unit's own rounding pass; a relative change of 1e-9 does not
+ *
+ * The rounding case moves a quarter of an ulp of 1 from the central to an empty
+ * row SHUFFLE_COUNT times: the central keeps 1 (each subtraction rounds back to
+ * it) while the other row gains every amount exactly, so the total drifts by
+ * SHUFFLE_COUNT x 2^-55 of its magnitude, computed below. That is above the
+ * summation bound 8u (n_F + 2) S_F (n_F = 9 entries of the mass total over three
+ * rows) and below the floor 2^-40 S_F, so it passes only through the floor.
+ */
+int test_ledger_tolerance(void) {
+  /* The rounding case's drift, by the same arithmetic the probe performs. */
+  double central = 1.0;
+  double other = 0.0;
+  for (int k = 0; k < SHUFFLE_COUNT; k++) {
+    central -= SHUFFLE_AMOUNT;
+    other += SHUFFLE_AMOUNT;
+  }
+  const double magnitude = central + other; /* the other rows hold no mass in this case */
+  const double drift = (central + other) - 1.0;
+  const double summation_bound = 8.0 * 0x1p-53 * (9.0 + 2.0) * magnitude;
+  TEST_ASSERT(drift > summation_bound, "the rounding case drifts beyond the summation bound");
+  TEST_ASSERT(drift < 0x1p-40 * magnitude, "and stays under the floor");
+
+  TEST_ASSERT_EQUAL(expect_success("rearrange", ledger_case_body), 1,
+                    "a rearrangement between rows is not flagged");
+  TEST_ASSERT_EQUAL(expect_success("rounding", ledger_case_body), 1,
+                    "a conservative unit's own rounding under the floor is not flagged");
+  TEST_ASSERT_EQUAL(expect_fatal("relative", ledger_case_body,
+                                 "Undeclared change to conserved total 'rate_fixture_mass' in "
+                                 "phase 'events' by module 'ledger_other'",
+                                 "neither 'ledger_other' nor a per-event module"),
+                    1, "an undeclared relative change of 1e-9 is caught");
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_ledger_retired_row_with_content_is_a_loss
+ * @brief   Retiring a row that holds content, undeclared, is fatal
+ *
+ * The ledger sums only active rows, so the retired row's Cold leaves the total;
+ * retire_undeclared declares nothing, so the run ends naming it.
+ */
+int test_ledger_retired_row_with_content_is_a_loss(void) {
+  TEST_ASSERT_EQUAL(expect_fatal("retire", ledger_case_body,
+                                 "Undeclared change to conserved total 'rate_fixture_mass' in "
+                                 "phase 'events' by module 'retire_undeclared'",
+                                 "Discrete-phase ledger: phase 'events' changed conserved total"),
+                    1, "a retired row's content is an undeclared loss");
   return TEST_PASS;
 }
 
@@ -2097,16 +2637,20 @@ int main(void) {
   ensure_probes_registered();
 
   TEST_RUN(test_rate_phase_startup_rules);
-  TEST_RUN(test_slaved_source_accepted_with_its_master);
+  TEST_RUN(test_refused_settings_accepted_at_their_limits);
   TEST_RUN(test_total_cycle_finder);
-  TEST_RUN(test_defaults_match_integrator);
+  TEST_RUN(test_gather_refuses_out_of_domain_start);
   TEST_RUN(test_per_galaxy_domain_isolates_rows);
   TEST_RUN(test_central_view);
   TEST_RUN(test_stripping_couples_the_group);
+  TEST_RUN(test_row_mapping_with_retired_row_ahead_of_central);
+  TEST_RUN(test_law_time_follows_each_rows_clock);
+  TEST_RUN(test_sentinel_row_beside_a_positive_delta_row);
   TEST_RUN(test_sentinel_group_is_unchanged);
   TEST_RUN(test_invalid_dt_is_fatal);
   TEST_RUN(test_rate_law_cannot_emit_or_create);
   TEST_RUN(test_nan_law_is_fatal);
+  TEST_RUN(test_tracer_bound_failure_names_its_fields);
   TEST_RUN(test_failure_file_holds_the_segment);
   TEST_RUN(test_failure_file_never_invents_coefficients);
   TEST_RUN(test_purity_probe_cost_and_order);
@@ -2121,6 +2665,9 @@ int main(void) {
   TEST_RUN(test_ledger_counts_a_covered_change);
   TEST_RUN(test_ledger_declaration_covers_only_subscribed_producers);
   TEST_RUN(test_ledger_by_galaxy_pass_is_one_unit);
+  TEST_RUN(test_ledger_refuses_a_non_finite_total);
+  TEST_RUN(test_ledger_tolerance);
+  TEST_RUN(test_ledger_retired_row_with_content_is_a_loss);
   TEST_RUN(test_step_statistics_arithmetic);
   TEST_RUN(test_statistics_bins);
 

@@ -181,8 +181,9 @@ jobs:
     # order of the four rate modules under both schemes, and record creation across task
     # counts. It builds its own test-build pairs (the second with MPI) and writes its whole
     # output to build/rate_tests.log, printed by the next step. --oversubscribe lets the
-    # 8-rank case run on the runner's few cores. The cross-driver leg runs locally
-    # (make tests-rate): it needs the real mini-Millennium data.
+    # 8-rank case run on the runner's few cores. The cross-driver leg (with its stiff case and
+    # its reordered real-data runs, which are what can see a missing canonical order) runs
+    # locally (make tests-rate): it needs the real mini-Millennium data.
     - name: Run rate battery
       env:
         MPIRUN: "mpirun --oversubscribe"

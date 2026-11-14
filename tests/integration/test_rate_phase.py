@@ -14,6 +14,9 @@ vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the hori
     or non-finite; no leak is reported
   - test_implicit_scheme: the same under scheme: implicit, with all five keys set
   - test_dynamic_timestepping: the same under TimestepScheme: dynamic
+  - test_stiff_rates: the same fixtures with their rate coefficients scaled by 1e3 under the
+    explicit scheme: RunProperties/RateIntegration records rejected steps and a largest K_max
+    above the positivity cap, and every fixture output value is finite and not negative
   - test_created_records_join: with test_fixture creating records in pre_timestep, the run
     completes and every created row's fixture values are finite and non-negative (that a created
     record joins its component at zero content is shown by tests/unit/test_rate_dispatch.c)
@@ -39,7 +42,9 @@ vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the hori
     test_rate_faults in its full-halo mode in one discrete phase end the run naming
     test_rate_faults and the total: a declaration covers only its own dispatch unit
 
-The seven fixture properties (src/module_system/test_fixture/test_properties.yaml) are written to
+The rate modules and their parameters are read from the rate battery's run file (see
+tests/framework/rate_fixture.py). The seven fixture properties
+(src/module_system/test_fixture/test_properties.yaml) are written to
 output in every test build, so the checks read them from the run's HDF5 galaxies.
 """
 
@@ -65,28 +70,21 @@ from framework import (  # noqa: E402
     run_mimic,
     run_test_suite,
 )
-
-RATE_FIXTURES = (
-    "test_rate_supply",
-    "test_rate_formation",
-    "test_rate_feedback",
-    "test_rate_stripping",
+from framework.rate_fixture import (  # noqa: E402
+    POSITIVITY_CAP,
+    STIFF_FACTOR,
+    load_rate_fixture,
+    read_step_extremes,
+    scale_coefficients,
 )
 
-# Fixture laws (each fixture's README): rates in inverse internal time units, so a snapshot
-# interval of order 0.1 moves a visible fraction; a threshold this low lets stars form even on
-# the two-galaxy horizontal fixture, whose cold content stays near 1e-5.
-RATE_PARAMS = {
-    "TestRateSupplyInfallRate": 0.5,
-    "TestRateSupplyTracerFraction": 0.1,
-    "TestRateSupplyCoolingRate": 5.0,
-    "TestRateFormationEfficiency": 5.0,
-    "TestRateFormationThreshold": 1.0e-7,
-    "TestRateFeedbackReheatRate": 1.0,
-    "TestRateFeedbackYield": 0.02,
-    "TestRateStrippingRate": 3.0,
-    "TestRateStrippingEjectionRate": 0.5,
-}
+# The four fixtures and their law parameters (each fixture's README) come from the run file the
+# rate battery uses, simulations/mini-millennium-horizontal/_tests/input/forest_blocks_rate.yaml.
+# The rates are in inverse internal time units and a snapshot interval is about 3e-4 of them, so
+# these defaults give a largest K_max near 0.0045, far below the positivity cap; the threshold is
+# low enough to let stars form even on the two-galaxy horizontal fixture, whose cold content
+# stays near 1e-5. test_stiff_rates scales the rates up to reach the cap.
+RATE_FIXTURES, RATE_PARAMS = load_rate_fixture()
 
 RESERVOIR_FIELDS = (
     "RateFixtureHot",
@@ -241,7 +239,7 @@ def test_run_file_section_refusals():
             "rejections_zero",
             fixtures,
             {"max_rejections_per_step": 0},
-            "modules.rate_integration.max_rejections_per_step must be >= 1, got 0",
+            "modules.rate_integration.max_rejections_per_step must be >= 20, got 0",
         ),
         (
             "rejections_fraction",
@@ -357,6 +355,33 @@ def test_dynamic_timestepping():
     )
     _assert_completed(returncode, log, "dynamic")
     _assert_fixture_output(_galaxies(output_dir), "dynamic")
+
+
+def test_stiff_rates():
+    """Rate coefficients scaled by 1e3 drive the explicit scheme to its positivity cap.
+
+    The scaling is an explicit override of the run file's parameters. With the default rates no
+    segment's largest K_max comes within a factor of 100 of the cap, so the cap, the retry rule
+    and repeated rejections never run through dispatch; here the master file's
+    RunProperties/RateIntegration must record rejected steps and a largest K_max above the cap,
+    and every fixture output value must still be finite and not negative, with each fixture
+    property non-zero on some row.
+    """
+    stiff = scale_coefficients(RATE_PARAMS, STIFF_FACTOR)
+    assert stiff != RATE_PARAMS, "the override scaled no parameter"
+    returncode, log, output_dir = _run(
+        "stiff",
+        _rate_phase(),
+        model_params=stiff,
+        rate_integration={"scheme": "explicit"},
+    )
+    _assert_completed(returncode, log, "stiff")
+    rejected, k_max = read_step_extremes(Path(output_dir) / "model.hdf5")
+    assert rejected > 0, "no step was rejected, so the retry rule never ran"
+    assert (
+        k_max > POSITIVITY_CAP
+    ), f"largest K_max {k_max:.3g} is not above the cap {POSITIVITY_CAP}"
+    _assert_fixture_output(_galaxies(output_dir), "stiff")
 
 
 def test_created_records_join():
@@ -621,6 +646,7 @@ def main():
                 test_explicit_scheme,
                 test_implicit_scheme,
                 test_dynamic_timestepping,
+                test_stiff_rates,
                 test_created_records_join,
                 test_failing_laws_write_a_failure_file,
                 test_purity_probe_catches_the_impure_law,

@@ -115,20 +115,48 @@ class ProcessingModeDescriptor:
         name: Configuration string used in module_info.yaml and run YAML.
         enum: C enumerator in enum ProcessingMode.
         family: Key of the CallbackFamily this mode dispatches to.
+        summary: What the mode's callback does, as the generated module_init.c legend
+            of supported processing modes states it.
     """
 
     name: str
     enum: str
     family: str
+    summary: str
 
 
 # Ordered as enum ProcessingMode (src/core/module_interface.h).
 PROCESSING_MODES: Tuple[ProcessingModeDescriptor, ...] = (
-    ProcessingModeDescriptor("process_full_halo", "PROCESSING_MODE_FULL_HALO", FAMILY_FOF),
-    ProcessingModeDescriptor("process_per_event", "PROCESSING_MODE_PER_EVENT", FAMILY_FOF),
-    ProcessingModeDescriptor("process_by_galaxy", "PROCESSING_MODE_BY_GALAXY", FAMILY_FOF),
-    ProcessingModeDescriptor("process_snapshot", "PROCESSING_MODE_SNAPSHOT", FAMILY_SNAPSHOT),
-    ProcessingModeDescriptor("process_rates", "PROCESSING_MODE_RATES", FAMILY_RATE),
+    ProcessingModeDescriptor(
+        "process_full_halo",
+        "PROCESSING_MODE_FULL_HALO",
+        FAMILY_FOF,
+        "Module processes full halo array (ngal > 1)",
+    ),
+    ProcessingModeDescriptor(
+        "process_per_event",
+        "PROCESSING_MODE_PER_EVENT",
+        FAMILY_FOF,
+        "Module processes one event target at a time (ngal = 1)",
+    ),
+    ProcessingModeDescriptor(
+        "process_by_galaxy",
+        "PROCESSING_MODE_BY_GALAXY",
+        FAMILY_FOF,
+        "Module processes one galaxy at a time (ngal = 1)",
+    ),
+    ProcessingModeDescriptor(
+        "process_snapshot",
+        "PROCESSING_MODE_SNAPSHOT",
+        FAMILY_SNAPSHOT,
+        "Module processes one whole snapshot population",
+    ),
+    ProcessingModeDescriptor(
+        "process_rates",
+        "PROCESSING_MODE_RATES",
+        FAMILY_RATE,
+        "Module returns transfer coefficients for one row (rate phase only)",
+    ),
 )
 
 MODES_BY_NAME: Dict[str, ProcessingModeDescriptor] = {mode.name: mode for mode in PROCESSING_MODES}
@@ -704,6 +732,29 @@ def _record_errors(transfer: Dict[str, Any], label: str) -> List[str]:
     return []
 
 
+def _noop_errors(transfer: Dict[str, Any], label: str) -> List[str]:
+    """Return the refusal of an internal transfer that moves nothing.
+
+    An internal transfer whose from and to are one reservoir, into the same record
+    (to_record self, the default), changes no state, yet its coefficient would still
+    lower the positivity cap and feed any observer. With to_record: central the same
+    pair is a real move between two records and stays legal.
+    """
+    source = transfer.get("from")
+    if (
+        isinstance(source, str)
+        and source != EXTERNAL_END
+        and source == transfer.get("to")
+        and transfer.get("to_record", DEFAULT_TRANSFER_RECORD) == DEFAULT_TRANSFER_RECORD
+    ):
+        return [
+            f"{label} moves '{source}' into itself on the same record; it changes nothing but "
+            "would still lower the positivity cap and feed any observer (declare to_record: "
+            "central to move it to the central's reservoir)"
+        ]
+    return []
+
+
 def _slaved_to_errors(transfer: Dict[str, Any], label: str) -> List[str]:
     """Return the refusals of a transfer's slaved_to that need no other module."""
     if "slaved_to" not in transfer:
@@ -753,7 +804,8 @@ def _transfer_errors(
     for message, dependency in end_errors:
         scan.refuse(name, message, dependency)
     slaved_errors = _slaved_to_errors(transfer, label)
-    for message in _record_errors(transfer, label) + slaved_errors:
+    noop_errors = [] if end_errors else _noop_errors(transfer, label)
+    for message in _record_errors(transfer, label) + slaved_errors + noop_errors:
         scan.refuse(name, message)
 
     if valid_name and not end_errors:
@@ -770,6 +822,7 @@ def _observer_errors(name: str, observers: Any, scan: _RateScan) -> None:
         )
         return
     declared = scan.names.get(name, [])
+    seen: Set[Tuple[str, str]] = set()
     for position, observer in enumerate(observers):
         label = f"{RATES_KEY}.observers[{position}]"
         if not isinstance(observer, dict):
@@ -793,6 +846,15 @@ def _observer_errors(name: str, observers: Any, scan: _RateScan) -> None:
                 f"{sorted(declared)})",
                 True,
             )
+        if isinstance(observed, str) and isinstance(prop, str):
+            if (prop, observed) in seen:
+                scan.refuse(
+                    name,
+                    f"{label} repeats an observer of property {prop!r} on transfer {observed!r}; "
+                    "each would add the transfer's moved amount, so the property would be "
+                    "counted twice",
+                )
+            seen.add((prop, observed))
         mapping = _reservoir_mapping(scan.galaxy_properties, prop)
         if mapping is None or mapping.get("kind") != "observer":
             described = (
@@ -1032,40 +1094,41 @@ def _cycle_errors(
 _NameClaims = Dict[Tuple[str, str], List[Tuple[Optional[str], str]]]
 
 
-# A property name that no metadata uses, rendered through the reservoir-table generator to
-# learn the form of the index symbol it emits for a property.
-_RESERVOIR_NAME_PROBE = "MimicRateNameProbe"
-
-
 def _reservoir_table_names(
     galaxy_properties: Dict[str, Dict[str, Any]],
 ) -> Tuple[Dict[str, str], Set[str]]:
     """Return the identifiers and tags reservoir_table.h declares, which module_init.c includes.
 
-    The forms come from scripts/generate_properties.py itself: a one-entry table is
-    rendered for a probe property, its index symbol gives the per-property form,
-    and its other macros, enum constants and tags are the table's fixed names. Every
-    galaxy property with a reservoir: mapping then claims its index symbol.
+    The table's fixed macros, enum constants and tags come from rendering it with
+    scripts/generate_properties.py itself, over one observer entry for every galaxy
+    property that declares a reservoir: mapping (the entries' kinds do not change
+    the names). A property's index symbol is described through reservoir_index_symbol().
 
     Returns:
         (identifier -> description, tags).
     """
-    from generate_properties import generate_reservoir_table_h  # Owner of these names.
+    from generate_properties import (  # Owner of these names.
+        generate_reservoir_table_h,
+        reservoir_index_symbol,
+    )
 
+    declared = [
+        name
+        for name in sorted(galaxy_properties)
+        if _reservoir_mapping(galaxy_properties, name) is not None
+    ]
     text = generate_reservoir_table_h(
-        [{"name": _RESERVOIR_NAME_PROBE, "reservoir": {"kind": "observer"}}], ""
+        [{"name": name, "reservoir": {"kind": "observer"}} for name in declared], ""
     )
     defined = set(re.findall(r"^#define\s+([A-Za-z_][A-Za-z0-9_]*)", text, re.M))
     defined |= set(re.findall(r"^\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", text, re.M))
     tags = set(re.findall(r"\b(?:enum|struct|union)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", text))
 
+    index_of = {reservoir_index_symbol(name): name for name in declared}
     identifiers: Dict[str, str] = {}
     for identifier in sorted(defined):
-        if _RESERVOIR_NAME_PROBE in identifier:
-            template = identifier.replace(_RESERVOIR_NAME_PROBE, "{}")
-            for name in sorted(galaxy_properties):
-                if _reservoir_mapping(galaxy_properties, name) is not None:
-                    identifiers[template.format(name)] = f"the reservoir index of '{name}'"
+        if identifier in index_of:
+            identifiers[identifier] = f"the reservoir index of '{index_of[identifier]}'"
         else:
             identifiers[identifier] = f"the reservoir-table identifier {identifier}"
     return identifiers, tags
@@ -1116,9 +1179,8 @@ def _identifier_collision_errors(modules: List[Dict[str, Any]], scan: _RateScan)
     Checks, over every rate module, the coefficient constants, the count macros and
     the enum tags the generator emits, against each other, against the core's own
     names of those forms, against the event identifiers and against the names
-    reservoir_table.h declares. Each rate module
-    involved gets one refusal listing its colliding names, so validating any one of
-    them alone reports the collision.
+    reservoir_table.h declares. Each rate module involved gets one refusal listing
+    its colliding names, so validating any one of them alone reports the collision.
     """
     clashes: Dict[str, List[str]] = {}
     for (space, identifier), claimants in sorted(_generated_name_claims(modules, scan).items()):

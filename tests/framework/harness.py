@@ -108,14 +108,137 @@ def fixture_output_field_names():
     the test's own environment.
 
     Returns:
-        tuple[str, ...]: Names of the fixture properties declared ``output: true``.
+        tuple[str, ...]: Names of the fixture properties with a truthy ``output``, the
+        generator's own rule.
     """
     path = module_system_dir() / "test_fixture" / "test_properties.yaml"
     with open(path, encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
-    return tuple(
-        prop["name"] for prop in data.get("galaxy_properties", []) if prop.get("output") is True
+    return tuple(prop["name"] for prop in data.get("galaxy_properties", []) if prop.get("output"))
+
+
+def _name_difference(names_now, expected):
+    """Describe how two name lists differ: the set differences, or the first differing position.
+
+    When both lists hold the same names, the set differences are empty, so the
+    first position where the order differs is named instead.
+    """
+    only_now = sorted(set(names_now) - set(expected))
+    only_expected = sorted(set(expected) - set(names_now))
+    if only_now or only_expected:
+        return f"Only in current: {only_now}\nOnly in expected: {only_expected}"
+    names_now, expected = tuple(names_now), tuple(expected)
+    index = next(
+        (i for i, (now, want) in enumerate(zip(names_now, expected, strict=False)) if now != want),
+        min(len(names_now), len(expected)),
     )
+    current = names_now[index] if index < len(names_now) else "<end of list>"
+    wanted = expected[index] if index < len(expected) else "<end of list>"
+    return (
+        f"Same names in a different order: first difference at position {index}, "
+        f"current {current!r}, expected {wanted!r}"
+    )
+
+
+def check_output_names(names_now, names_ref, where=""):
+    """Assert a test build's output names are the baseline's followed by the fixture outputs.
+
+    A test build appends the test fixtures' output fields after every production
+    field, so any other difference (a production field added, removed, renamed or
+    moved) is a schema change the baseline does not cover. Output that holds exactly
+    the baseline's names came from a production binary, which these tests do not
+    accept, and the failure says so.
+
+    Args:
+        names_now: The run's output field names, in order.
+        names_ref: The committed baseline's output field names, in order.
+        where: Optional prefix naming what was checked (for example ``"snapshot 16: "``).
+
+    Raises:
+        AssertionError: naming the difference when the names are not the expected ones.
+    """
+    fixture_names = fixture_output_field_names()
+    expected = tuple(names_ref) + fixture_names
+    if tuple(names_now) == expected:
+        return
+    if tuple(names_now) == tuple(names_ref):
+        # The runner reports a failure's first line, so the explanation leads.
+        headline = (
+            f"{where}the output schema holds none of the test fixtures' output fields "
+            f"{list(fixture_names)}: the binary is a production build, and this test expects a "
+            "test build (make TEST_BUILD=yes)."
+        )
+    else:
+        headline = (
+            f"{where}output property names differ from the baseline's followed by the test "
+            f"fixtures' output fields {list(fixture_names)}."
+        )
+    message = f"{headline}\n{_name_difference(names_now, expected)}"
+    raise AssertionError(message)
+
+
+def check_output_names_reject_doctoring(names_ref):
+    """Assert check_output_names fails, naming the difference, on doctored name lists.
+
+    The true list passes; a production field added, removed, renamed or moved, and
+    fixture fields missing (a production binary), are each rejected.
+
+    Args:
+        names_ref: The committed baseline's output field names, in order.
+
+    Returns:
+        int: The number of doctored lists rejected.
+    """
+    names_ref = tuple(names_ref)
+    fixture = fixture_output_field_names()
+    assert len(names_ref) >= 2 and fixture, "need production and fixture names to doctor"
+
+    check_output_names(names_ref + fixture, names_ref)
+
+    middle = len(names_ref) // 2
+    renamed = names_ref[:middle] + (names_ref[middle] + "Renamed",) + names_ref[middle + 1 :]
+    swapped = (
+        names_ref[: middle - 1]
+        + (names_ref[middle], names_ref[middle - 1])
+        + names_ref[middle + 1 :]
+    )
+    position = (
+        f"first difference at position {middle - 1}, current {names_ref[middle]!r}, "
+        f"expected {names_ref[middle - 1]!r}"
+    )
+    # (label, doctored current names, fragments the failure message must hold, fragments its
+    # first line, which is all the test runner reports, must hold)
+    doctored = [
+        ("production field added", names_ref + ("DoctoredField",) + fixture, ["DoctoredField"], []),
+        (
+            "production field removed",
+            names_ref[:middle] + names_ref[middle + 1 :] + fixture,
+            [repr(names_ref[middle])],
+            [],
+        ),
+        ("production field renamed", renamed + fixture, [names_ref[middle] + "Renamed"], []),
+        ("production fields reordered", swapped + fixture, [position], []),
+        # The first line lists the fixture names, so check the difference part, which
+        # lists the missing names sorted, and, in the first line, the explanation.
+        (
+            "fixture fields missing",
+            names_ref,
+            [f"Only in expected: {sorted(fixture)}"],
+            ["production build", "this test expects a test build"],
+        ),
+    ]
+    for label, names_now, fragments, headline in doctored:
+        try:
+            check_output_names(names_now, names_ref)
+        except AssertionError as exc:
+            for fragment in fragments:
+                assert fragment in str(exc), f"{label}: failure does not name {fragment}: {exc}"
+            first_line = str(exc).splitlines()[0]
+            for fragment in headline:
+                assert fragment in first_line, f"{label}: first line lacks {fragment}: {exc}"
+            continue
+        raise AssertionError(f"{label}: the name check accepted a doctored name list")
+    return len(doctored)
 
 
 def not_applicable_to_non_default_baseline():

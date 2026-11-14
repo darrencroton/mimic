@@ -2052,25 +2052,29 @@ static void sum_conserved_totals(const struct FoFWorkspace *ws, struct TotalSums
 }
 
 /**
- * @brief   Comma-separated names of a plan list's modules, for a diagnostic
+ * @brief   Name a dispatch unit for a diagnostic: its full-halo module, or the by-galaxy pass
  *
- * Each name is written whole or not at all; a list that does not fit in
- * @p size bytes (at least 8) ends with "..." after its last whole name.
+ * @param   unit  A full-halo unit's index in the plan, or plan->num_full_halo for the
+ *                by-galaxy pass
  */
-static const char *module_list_names(struct Module *const *list, int count, char *buffer,
-                                     size_t size) {
-  static const char more[] = ", ...";
+static const char *describe_discrete_unit(const struct PhasePlan *plan, int unit, char *buffer,
+                                          size_t size) {
+  if (unit < plan->num_full_halo) {
+    snprintf(buffer, size,
+             "module '%s' (process_full_halo, with the per-event modules its events trigger)",
+             plan->full_halo[unit]->name);
+    return buffer;
+  }
+  char names[512] = "";
   size_t used = 0;
-  buffer[0] = '\0';
-  for (int i = 0; i < count; i++) {
-    const size_t room = size > sizeof(more) + used ? size - sizeof(more) - used : 0;
-    const int written = snprintf(buffer + used, room, "%s'%s'", i > 0 ? ", " : "", list[i]->name);
-    if (written < 0 || (size_t)written >= room) {
-      snprintf(buffer + used, size - used, "%s", i > 0 ? more : "...");
+  for (int i = 0; i < plan->num_by_galaxy; i++) {
+    char quoted[MAX_STRING_LEN + 2];
+    snprintf(quoted, sizeof(quoted), "'%s'", plan->by_galaxy[i]->name);
+    if (!rate_append_list_item(names, sizeof(names), &used, quoted)) {
       break;
     }
-    used += (size_t)written;
   }
+  snprintf(buffer, size, "its process_by_galaxy pass (modules %s)", names);
   return buffer;
 }
 
@@ -2080,24 +2084,30 @@ static const char *module_list_names(struct Module *const *list, int count, char
  * @param   unit     A full-halo unit's index in the plan, or plan->num_full_halo for the
  *                   by-galaxy pass
  *
- * Fatal on an undeclared change; counts a declared one in the run's statistics.
+ * Fatal on a total left not finite, whatever the declarations, and on an
+ * undeclared change; counts a declared one in the run's statistics. A unit's
+ * before-sums are the previous unit's after-sums, which this check let pass, so
+ * they are finite.
  */
 static void check_discrete_unit(const struct PhasePlan *plan, int unit,
                                 const struct TotalSums *before, const struct TotalSums *after,
                                 const struct ModuleContext *ctx, const struct FoFWorkspace *ws) {
   const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
   const double unit_roundoff = 0x1p-53;
+  const double relative_floor = 0x1p-40; /* a conservative unit's own arithmetic stays below it */
   discrete_ledger_units++;
   for (int t = 0; t < num_totals; t++) {
+    const bool finite = isfinite(after->sum[t]) && isfinite(after->magnitude[t]);
     const int64_t entries =
         before->entries[t] > after->entries[t] ? before->entries[t] : after->entries[t];
     const double magnitude = fmax(before->magnitude[t], after->magnitude[t]);
-    const double tolerance = 8.0 * unit_roundoff * ((double)entries + 2.0) * magnitude;
+    const double tolerance =
+        fmax(8.0 * unit_roundoff * ((double)entries + 2.0), relative_floor) * magnitude;
     const double change = after->sum[t] - before->sum[t];
-    if (fabs(change) <= tolerance) {
-      continue; /* no change; a NaN fails this test and is a change */
+    if (finite && fabs(change) <= tolerance) {
+      continue; /* no change */
     }
-    if (plan->ledger_declares[(size_t)unit * (size_t)num_totals + (size_t)t]) {
+    if (finite && plan->ledger_declares[(size_t)unit * (size_t)num_totals + (size_t)t]) {
       rate_statistics.counts.declared_changes[t]++;
       continue;
     }
@@ -2106,26 +2116,34 @@ static void check_discrete_unit(const struct PhasePlan *plan, int unit,
     const long long central_id = (ctx->central_index >= 0 && ctx->central_index < ws->count)
                                      ? ws->halos[ctx->central_index].UniqueGalaxyID
                                      : -1;
+    char unit_name[MAX_STRING_LEN + 640];
+    describe_discrete_unit(plan, unit, unit_name, sizeof(unit_name));
+    if (!finite) {
+      ERROR_LOG("Discrete-phase ledger: phase '%s' left conserved total '%s' not finite (sum "
+                "%.17g, sum of magnitudes %.17g; the sum was %.17g before the unit) at snapshot "
+                "%d, substep %d, in the FoF group of central UniqueGalaxyID %lld",
+                plan->phase_name, total, after->sum[t], after->magnitude[t], before->sum[t],
+                ctx->snapshot_number, ctx->substep_number, central_id);
+      FATAL_ERROR("Conserved total '%s' is not finite after %s in phase '%s': a reservoir or "
+                  "tracer of the total became infinite or not a number, which no changes_totals "
+                  "declaration covers",
+                  total, unit_name, plan->phase_name);
+    }
     ERROR_LOG("Discrete-phase ledger: phase '%s' changed conserved total '%s' from %.17g to "
               "%.17g (by %.17g; rounding tolerance %.3g) at snapshot %d, substep %d, in the FoF "
               "group of central UniqueGalaxyID %lld",
               plan->phase_name, total, before->sum[t], after->sum[t], change, tolerance,
               ctx->snapshot_number, ctx->substep_number, central_id);
     if (unit < plan->num_full_halo) {
-      const struct Module *mod = plan->full_halo[unit];
-      FATAL_ERROR("Undeclared change to conserved total '%s' in phase '%s' by module '%s' "
-                  "(process_full_halo, with the per-event modules its events trigger): neither "
-                  "'%s' nor a per-event module in the phase subscribed to its events lists '%s' "
-                  "in changes_totals",
-                  total, plan->phase_name, mod->name, mod->name, total);
+      const char *name = plan->full_halo[unit]->name;
+      FATAL_ERROR("Undeclared change to conserved total '%s' in phase '%s' by %s: neither '%s' "
+                  "nor a per-event module in the phase subscribed to its events lists '%s' in "
+                  "changes_totals",
+                  total, plan->phase_name, unit_name, name, total);
     }
-    char names[512];
-    FATAL_ERROR("Undeclared change to conserved total '%s' in phase '%s' by its "
-                "process_by_galaxy pass (modules %s): no by-galaxy module in the phase lists "
-                "'%s' in changes_totals",
-                total, plan->phase_name,
-                module_list_names(plan->by_galaxy, plan->num_by_galaxy, names, sizeof(names)),
-                total);
+    FATAL_ERROR("Undeclared change to conserved total '%s' in phase '%s' by %s: no by-galaxy "
+                "module in the phase lists '%s' in changes_totals",
+                total, plan->phase_name, unit_name, total);
   }
 }
 
@@ -2202,19 +2220,24 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     rate_assembly_run(rate_plan, ctx, ws, &rate_scratch, invoke_rate_law, &rate_statistics);
   }
 
-  /* The discrete-phase ledger runs only when a rate phase is configured, and never in it */
-  const bool ledger = plan->ledger_declares != NULL;
-  struct TotalSums before;
-  struct TotalSums after;
+  /* The discrete-phase ledger runs only when a rate phase is configured, and never in it.
+   * Nothing changes the workspace between two dispatch units (a unit's commit of created
+   * records and its safety dispatch are inside it), so a unit's after-sums are the next
+   * unit's before-sums: sums[current] always holds the workspace as the next unit finds it,
+   * and a phase of U full-halo units and a by-galaxy pass sums U + 2 times. */
+  const bool ledger =
+      plan->ledger_declares != NULL && (plan->num_full_halo > 0 || plan->num_by_galaxy > 0);
+  struct TotalSums sums[2];
+  int current = 0;
+  if (ledger) {
+    sum_conserved_totals(ws, &sums[current]);
+  }
 
   /* PASS 1: PROCESSING_MODE_FULL_HALO modules (always first) */
   struct Halo *halos = ws->halos;
   int ngal = workspace_callback_count(ws);
   for (int i = 0; i < plan->num_full_halo; i++) {
     struct Module *mod = plan->full_halo[i];
-    if (ledger) {
-      sum_conserved_totals(ws, &before);
-    }
 
     DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, z=%.3f)", mod->name, ngal,
               ctx->substep_number + 1, ctx->num_substeps, ctx->redshift);
@@ -2250,17 +2273,14 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
 
     /* The unit ends here: the call, its consumers, its commit and the safety dispatch. */
     if (ledger) {
-      sum_conserved_totals(ws, &after);
-      check_discrete_unit(plan, i, &before, &after, ctx, ws);
+      sum_conserved_totals(ws, &sums[1 - current]);
+      check_discrete_unit(plan, i, &sums[current], &sums[1 - current], ctx, ws);
+      current = 1 - current;
     }
   }
 
   /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (after full-halo/event work); entered only
    * when the phase has a by-galaxy entry, and checked by the ledger as one unit */
-  const bool by_galaxy_ledger = ledger && plan->num_by_galaxy > 0;
-  if (by_galaxy_ledger) {
-    sum_conserved_totals(ws, &before);
-  }
   for (int64_t g = 0; plan->num_by_galaxy > 0 && g < ws->count; g++) {
     if (ws->halos[g].galaxy == NULL || ws->halos[g].Type == 3) {
       continue;
@@ -2282,9 +2302,9 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
       }
     }
   }
-  if (by_galaxy_ledger) {
-    sum_conserved_totals(ws, &after);
-    check_discrete_unit(plan, plan->num_full_halo, &before, &after, ctx, ws);
+  if (ledger && plan->num_by_galaxy > 0) {
+    sum_conserved_totals(ws, &sums[1 - current]);
+    check_discrete_unit(plan, plan->num_full_halo, &sums[current], &sums[1 - current], ctx, ws);
   }
 
   end_phase_event_dispatch();

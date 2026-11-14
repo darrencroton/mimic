@@ -23,6 +23,7 @@
 #include "hdf5_internal.h"
 #include "module_registry.h" /* for_each_phase, event-contract enumeration */
 #include "rate_assembly.h"   /* RateTransfers rows, step statistics */
+#include "rate_integrator.h" /* the scheme's method description */
 #include "output/util.h"     /* struct OutputPartitionSource, get_output_partition_source() */
 
 static void copy_hdf5_string(char dest[MAX_STRING_LEN], const char *src) {
@@ -471,6 +472,28 @@ static void write_event_contracts(hid_t parent_group_id) {
 
 /* ── The rate phase's records (written only when a rate phase is configured) ── */
 
+/**
+ * @brief   Write a one-dimensional compound dataset of @p count rows with a description
+ *
+ * Fatal on failure. With @p count zero the dataset is created empty and no
+ * rows are written.
+ */
+static void write_compound_dataset(hid_t group_id, const char *name, hid_t rowtype,
+                                   const void *rows, hsize_t count, const char *description) {
+  hid_t space_id = H5Screate_simple(1, &count, NULL);
+  hid_t dataset_id =
+      H5Dcreate(group_id, name, rowtype, space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create %s dataset in HDF5 file", name);
+  }
+  if (count > 0 && H5Dwrite(dataset_id, rowtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, rows) < 0) {
+    FATAL_ERROR("Failed to write %s dataset to HDF5 file", name);
+  }
+  write_description_attr(dataset_id, description);
+  H5Dclose(dataset_id);
+  H5Sclose(space_id);
+}
+
 /** Row layout for the RateTransfers HDF5 compound dataset */
 typedef struct {
   char module[MAX_STRING_LEN];
@@ -527,27 +550,13 @@ static void write_rate_transfers(hid_t parent_group_id) {
   H5Tinsert(rowtype, "to_record", HOFFSET(RateTransferEntry, to_record), str_type);
   H5Tinsert(rowtype, "kind", HOFFSET(RateTransferEntry, kind), str_type);
   H5Tinsert(rowtype, "master", HOFFSET(RateTransferEntry, master), str_type);
-
-  hsize_t dims = (hsize_t)count;
-  hid_t dataspace_id = H5Screate_simple(1, &dims, NULL);
-  hid_t dataset_id = H5Dcreate(parent_group_id, "RateTransfers", rowtype, dataspace_id, H5P_DEFAULT,
-                               H5P_DEFAULT, H5P_DEFAULT);
-  if (dataset_id < 0) {
-    FATAL_ERROR("Failed to create RateTransfers dataset in HDF5 file");
-  }
-  if (H5Dwrite(dataset_id, rowtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, entries) < 0) {
-    FATAL_ERROR("Failed to write RateTransfers dataset to HDF5 file");
-  }
-  write_description_attr(dataset_id,
+  write_compound_dataset(parent_group_id, "RateTransfers", rowtype, entries, (hsize_t)count,
                          "Transfers of the modules configured in the rate phase, in global "
                          "transfer order (module name, then declaration order). Each row gives "
                          "the module, the transfer, its from and to ends (a property or "
                          "external), its recipient record (self or central), its kind "
                          "(internal, sink, source or slaved_source) and a slaved source's master "
                          "as module.transfer.");
-
-  H5Dclose(dataset_id);
-  H5Sclose(dataspace_id);
   H5Tclose(rowtype);
   H5Tclose(str_type);
   myfree(entries);
@@ -583,24 +592,6 @@ static hid_t write_uint64_dataset(hid_t group_id, const char *name, const uint64
   write_description_attr(dataset_id, description);
   H5Sclose(space_id);
   return dataset_id;
-}
-
-/** @brief Write a one-row compound dataset with a description (fatal on failure) */
-static void write_single_row(hid_t group_id, const char *name, hid_t rowtype, const void *row,
-                             const char *description) {
-  hsize_t one = 1;
-  hid_t space_id = H5Screate_simple(1, &one, NULL);
-  hid_t dataset_id =
-      H5Dcreate(group_id, name, rowtype, space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  if (dataset_id < 0) {
-    FATAL_ERROR("Failed to create %s dataset in HDF5 file", name);
-  }
-  if (H5Dwrite(dataset_id, rowtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, row) < 0) {
-    FATAL_ERROR("Failed to write %s dataset to HDF5 file", name);
-  }
-  write_description_attr(dataset_id, description);
-  H5Dclose(dataset_id);
-  H5Sclose(space_id);
 }
 
 /** One-row layouts of the StepTotals and StepMaxima datasets */
@@ -656,10 +647,10 @@ static void write_rate_statistics(hid_t group_id, const struct RateStatistics *s
             H5T_NATIVE_UINT64);
   H5Tinsert(totals_type, "law_evaluations", HOFFSET(RateStepTotalsRow, law_evaluations),
             H5T_NATIVE_UINT64);
-  write_single_row(group_id, "StepTotals", totals_type, &totals,
-                   "Run totals over every task: segments (one component across one substep), "
-                   "accepted and rejected steps, and law evaluations (each one call of every "
-                   "rate module's law per active row of the component).");
+  write_compound_dataset(group_id, "StepTotals", totals_type, &totals, 1,
+                         "Run totals over every task: segments (one component across one "
+                         "substep), accepted and rejected steps, and law evaluations (each one "
+                         "call of every rate module's law per active row of the component).");
   H5Tclose(totals_type);
 
   const RateStepMaximaRow maxima = {stats->maxima.accepted_steps, stats->maxima.rejected_steps,
@@ -673,9 +664,10 @@ static void write_rate_statistics(hid_t group_id, const struct RateStatistics *s
   H5Tinsert(maxima_type, "law_evaluations_per_segment",
             HOFFSET(RateStepMaximaRow, law_evaluations_per_segment), H5T_NATIVE_UINT64);
   H5Tinsert(maxima_type, "k_max", HOFFSET(RateStepMaximaRow, k_max), H5T_NATIVE_DOUBLE);
-  write_single_row(group_id, "StepMaxima", maxima_type, &maxima,
-                   "Exact maxima over every segment of every task: accepted steps, rejected "
-                   "steps and law evaluations in one segment, and the largest K_max.");
+  write_compound_dataset(group_id, "StepMaxima", maxima_type, &maxima, 1,
+                         "Exact maxima over every segment of every task: accepted steps, "
+                         "rejected steps and law evaluations in one segment, and the largest "
+                         "K_max.");
   H5Tclose(maxima_type);
 
   const int num_totals = MIMIC_RESERVOIR_TOTAL_COUNT;
@@ -690,24 +682,12 @@ static void write_rate_statistics(hid_t group_id, const struct RateStatistics *s
   hid_t change_type = H5Tcreate(H5T_COMPOUND, sizeof(DeclaredChangeEntry));
   H5Tinsert(change_type, "total", HOFFSET(DeclaredChangeEntry, total), str_type);
   H5Tinsert(change_type, "count", HOFFSET(DeclaredChangeEntry, count), H5T_NATIVE_UINT64);
-  hsize_t dims = (hsize_t)num_totals;
-  hid_t space_id = H5Screate_simple(1, &dims, NULL);
-  hid_t dataset_id = H5Dcreate(group_id, "DeclaredDiscreteChanges", change_type, space_id,
-                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  if (dataset_id < 0) {
-    FATAL_ERROR("Failed to create DeclaredDiscreteChanges dataset in HDF5 file");
-  }
-  if (num_totals > 0 &&
-      H5Dwrite(dataset_id, change_type, H5S_ALL, H5S_ALL, H5P_DEFAULT, changes) < 0) {
-    FATAL_ERROR("Failed to write DeclaredDiscreteChanges dataset to HDF5 file");
-  }
-  write_description_attr(dataset_id,
+  write_compound_dataset(group_id, "DeclaredDiscreteChanges", change_type, changes,
+                         (hsize_t)num_totals,
                          "Per conserved total, the discrete-phase dispatch units (a full-halo "
                          "module's call with the per-event modules it triggers, or a phase's "
                          "by-galaxy pass) that changed the total beyond rounding under a "
                          "changes_totals declaration, over every task.");
-  H5Dclose(dataset_id);
-  H5Sclose(space_id);
   H5Tclose(change_type);
   H5Tclose(str_type);
   myfree(changes);
@@ -756,7 +736,7 @@ static void write_rate_integration(hid_t parent_group_id) {
   write_string_attribute(group_id, "check_purity", str_type, dataspace_id,
                          settings->check_purity ? "true" : "false");
   write_string_attribute(group_id, "method", str_type, dataspace_id,
-                         rate_assembly_method_description(settings->scheme));
+                         rate_integrator_method_description((enum RateScheme)settings->scheme));
   H5Sclose(dataspace_id);
   H5Tclose(str_type);
 

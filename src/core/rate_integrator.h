@@ -5,8 +5,8 @@
  * @file    rate_integrator.h
  * @brief   Advances one rate component across one segment, and checks its closure
  *
- * A component is a set of entries (the reservoir, tracer and observer contents
- * of one or more rows) coupled by fluxes. The integrator advances it across one
+ * A component is a set of entries (the reservoir and tracer contents of one or
+ * more rows) coupled by fluxes. The integrator advances it across one
  * segment in normalised time tau, from 0 to 1, under error control, with a
  * per-segment conservation check and a tracer-bound check, by one of two
  * schemes (settings.scheme): the explicit SSPRK(4,3) scheme with a positivity
@@ -24,12 +24,12 @@
  * order, so a cross-record transfer conserves whatever the two rows' Delta. A
  * row with Delta = 0 donates nothing and its sources move nothing, but it
  * receives what a donor row with positive Delta sends it. A segment whose every
- * Delta is zero takes no step and evaluates no law; it still runs the tracer
- * bound on the unchanged state, where the bound is zero.
+ * Delta is zero takes no step, evaluates no law and passes its unchanged state
+ * (the tracer bound, below, cannot fail without a step).
  *
  * Canonical order. Entries are processed in the order the caller lists them,
  * which the caller makes canonical; the implicit scheme needs each row's
- * entries (observers included) listed together. Fluxes are processed in the
+ * entries listed together. Fluxes are processed in the
  * order of (clock row, global transfer index), whatever order the caller lists
  * them in, so a permuted flux list gives a bit-identical result; a tracer move
  * follows its master transfer, tracer moves of one transfer in entry order.
@@ -54,13 +54,12 @@
  * its slaved sources nothing. Its amounts accumulate as a source of the
  * recipient's total.
  *
- * Observers. An observer entry accumulates, at every accepted step, the
- * committed amount of the declared flux it names: the same number that moved
- * (zero for a flux whose two ends are one entry). Observers belong to no total
- * and are left out of the error norm, the first-step rule, the positivity checks,
- * K_max and the closure. An explicit stage's law sees an observer at its value
- * at the step start; the implicit scheme's trial-end evaluation sees it at the
- * value the trial would commit.
+ * Flux amounts. A segment reports each declared flux's committed amount: the
+ * sum over its accepted steps of the same number that moved (zero for a flux
+ * whose two ends are one entry). An observer, a property that accumulates what
+ * one flux moved, is not integrator state: it is no entry, belongs to no total,
+ * and no law sees it change within a segment. Its caller adds the flux's amount
+ * to it once the segment has succeeded.
  *
  * Positivity (explicit scheme). With C = 2 and sigma = 0.9, K_i is Delta of
  * entry i's row times the sum of the coefficients out of entry i, and K_max is
@@ -74,27 +73,31 @@
  * implicit scheme, which has no cap.
  *
  * Error control. Weight w_i = absolute_tolerance * S_i + relative_tolerance *
- * max(|x_i| at step start, |x_i| at the trial end), where S_i is the larger of
- * the entry's own row's sum over the entries of its total at step start and at
- * the trial end, floored at 1e-12 times the larger of that total's sums over
- * the whole component at the same two states; a tracer uses its parent's total.
- * Observers have no weight. err is the largest |e_i| / w_i,
- * a zero error contributing 0 and a zero weight under a non-zero error, or a
- * NaN, contributing +infinity; a step is accepted when err <= 1. Under the
- * explicit scheme e is the embedded (b - bhat) estimate and the next step is
- * the step times 0.9 * err^(-1/3), clamped to [0.2, 5], with no growth on a
- * step that follows a rejection. The explicit first step uses the Hairer and
- * Wanner rule adapted to this norm and to the positivity cap, with one extra
- * law evaluation. Its d0, d1 and d2 leave out every entry whose start weight
- * is zero and every entry whose own row's sum of its total (its parent's total,
- * for a tracer) is zero at the segment start: the floored scale would give
- * such an entry a weight near 1e-12 of the component's, and a first step far
- * below the minimum, so the error control governs it from the first step
- * through the trial-end scale instead. When every entry is left out the first
- * step is min(1, cap), with no extra evaluation. The last step is stretched by
- * up to 10% to land on tau = 1, otherwise a remainder shorter than two steps is
- * split into two equal steps; tau is assigned 1.0 at the end, never
- * accumulated. A step below 2^-46 fails.
+ * max(|x_i| at step start, |x_i| at the trial end), where S_i is the largest of
+ * the entry's own row's sum over the entries of its total at the segment start,
+ * at the step start and at the trial end, floored at 1e-12 times the largest of
+ * that total's sums over the whole component at the same three states; a tracer
+ * uses its parent's total. So a reservoir that drains is followed to an
+ * absolute accuracy of absolute_tolerance times its row's segment-start total,
+ * not relatively through every decade it falls, and a reservoir holding a small
+ * fraction of its row's total is held to that absolute accuracy, not to the
+ * relative tolerance. err is the largest |e_i| / w_i, a zero error contributing
+ * 0 and a zero weight under a non-zero error, or a NaN, contributing +infinity;
+ * a step is accepted when err <= 1. Under the explicit scheme e is the embedded
+ * (b - bhat) estimate and the next step is the step times 0.9 * err^(-1/3),
+ * clamped to [0.2, 5], with no growth on a step that follows a rejection.
+ *
+ * Starting step and landing. Every segment starts with a step of min(1,
+ * cap(x0)) under the explicit scheme, cap(x0) being the positivity cap sigma *
+ * C / K_max at the segment start, and of 1 under the implicit scheme; the error
+ * control and the rejection rules size every step from there, and starting
+ * costs no law evaluation of its own. So no in-domain start state fails with
+ * step_underflow at tau = 0 unless the positivity cap itself is below the
+ * minimum step; what the starting step cannot prevent is a law whose error does
+ * not fall as the step shrinks, whose rejections at tau = 0 can still drive the
+ * step below it. The last step is stretched by up to 10% to land on tau = 1,
+ * otherwise a remainder shorter than two steps is split into two equal steps;
+ * tau is assigned 1.0 at the end, never accumulated. A step below 2^-46 fails.
  *
  * The implicit scheme (settings.scheme = RATE_SCHEME_IMPLICIT). Patankar-Euler
  * with the coefficients frozen at the step start: (I - dt A(x_n)) x_{n+1} =
@@ -120,17 +123,17 @@
  * step-start content plus, in canonical order, the inflow amounts already
  * known: the sources, the slaved sources and the transfers out of blocks solved
  * before it.
- *   The error estimate is e = M^-1 (dt/2) (F(x_{n+1}) - F(x_n)), F the net rate
- * of each entry, which reuses the factors and the law evaluation at the trial
- * end (the next step's start when the step is accepted; its observers already
- * hold their committed values), so no law sees a state the solve did not
- * produce. It is weighed in the norm above; the next step is the step times
- * 0.9 * err^(-1/2), clamped to [0.2, 5], with no growth after a rejection, and
- * the step has no positivity cap. The first step is h0 = 1 when d0 or d1 of the
- * explicit rule is below 1e-5 and min(1, 0.01 d0 / d1) otherwise, the same
- * entries left out as there, and 1 when every entry is left out; no probe state
- * is formed and no extra law is evaluated. Landing and the minimum step are as
- * above.
+ *   The error estimate is e = M^-1 M^-1 (dt/2) (F(x_{n+1}) - F(x_n)), F the net
+ * rate of each entry, which reuses the factors for both solves and the law
+ * evaluation at the trial end (the next step's start when the step is
+ * accepted), so no law sees a state the solve did not produce. It is filtered
+ * twice because, for a stiff component, the once-filtered estimate saturates at
+ * half the jump in F while the true local error falls as 1/(dt k), k the stiff
+ * rate; the second solve restores that scaling and leaves the non-stiff limit,
+ * where M is near the identity, unchanged. It is weighed in the norm above; the
+ * next step is the step times 0.9 * err^(-1/2), clamped to [0.2, 5], with no
+ * growth after a rejection, and the step has no positivity cap. The starting
+ * step, landing and the minimum step are as above.
  *   A declared transfer, sink or source whose dt times rate is not finite, or a
  * block pivot that is not finite, fails the segment with
  * RATE_CAUSE_BAD_COEFFICIENT. A solved entry that is not finite and
@@ -148,16 +151,25 @@
  * many external fluxes a total has; the segment then fails with
  * RATE_CAUSE_LEDGER when a total does not close (rate_check_closure()). It then
  * fails with RATE_CAUSE_TRACER_BOUND when a tracer z of parent p ends with
- * z - p > 8u (L + 2) N_acc Theta_p, u = 2^-53, where Theta_p, the parent's gross
- * throughput, is p's segment-start content plus the inflow amounts into p over
- * the accepted steps (accumulated per entry, like the external amounts). The
- * scheme preserves the bound when every inflow to a tracer is matched by a
- * parent inflow at least as large; a source or slaved source into the tracer can
- * break that premise in the exact solution, so the failure's detail says
- * whether the tracer has sources of its own. L is the largest number of inflow
- * plus outflow terms on one entry; under the implicit scheme it is at least
- * the number of reservoir and tracer entries on one row (one galaxy's block),
- * which covers the block solve's rounding.
+ * z - p > e0 + 8u (L + 2) N_acc (Theta_p + e0), u = 2^-53, where e0 = max(0,
+ * z - p) at the segment start and Theta_p, the parent's gross throughput, is
+ * p's segment-start content plus the inflow amounts into p over the accepted
+ * steps (accumulated per entry, like the external amounts). The bound limits
+ * the growth of a tracer's excess over its parent, not its level: a tracer a
+ * rounding error above its parent at the segment start (a residue a discrete
+ * phase left) passes a segment that does not add to that excess, and a segment
+ * that takes no step (N_acc = 0) passes its unchanged state. The scheme
+ * preserves the bound when every inflow to a tracer is matched by a parent
+ * inflow at least as large; a source or slaved source into the tracer can
+ * break that premise in the exact solution, so a tracer with sources of its
+ * own that overtakes its parent fails, and the failure's detail says whether
+ * the tracer has sources of its own. L is the largest number of inflow plus
+ * outflow terms on one entry; under the implicit scheme it is at least the
+ * number of reservoir and tracer entries on one row (one galaxy's block), which
+ * covers the block solve's rounding. L is a maximum over the whole component,
+ * so a central receiving one transfer per satellite has an L of about the
+ * satellite count, and the closure tolerance of every total in that component
+ * grows, and its sensitivity to an imbalance falls, in proportion.
  *
  * Fixed steps. With settings.fixed_steps = n > 0 the segment is n equal steps
  * with the controller off and no error estimate, under either scheme. The
@@ -170,11 +182,10 @@
  * workspace of rate_integrator_workspace_bytes() bytes for the scheme, aligned
  * for double. It keeps no state between calls, so the step sequence is a pure
  * function of the component, the start state, the law, the settings and the
- * Delta values. It
- * works on a copy and writes the caller's state back only on success: a failed
- * segment leaves the state and the external amounts untouched. A malformed
- * tracer, observer or slaved-source link (struct RateEntry, struct RateFlux) is
- * a programming error and fatal.
+ * Delta values. It works on a copy and writes the caller's state back only on
+ * success: a failed segment leaves the state, the external amounts and the flux
+ * amounts untouched. A malformed tracer or slaved-source link (struct
+ * RateEntry, struct RateFlux) is a programming error and fatal.
  *
  * This unit knows nothing of galaxies, modules, the FoF workspace or the run file.
  */
@@ -208,24 +219,21 @@ enum RateFluxKind {
 /** What a state entry holds; the zero value is a reservoir. */
 enum RateEntryKind {
   RATE_ENTRY_RESERVOIR = 0, /* a reservoir's content, a member of a conserved total */
-  RATE_ENTRY_TRACER,        /* a tracer's content, moved with its parent's outflows */
-  RATE_ENTRY_OBSERVER       /* the committed amount of one flux, accumulated; no total */
+  RATE_ENTRY_TRACER         /* a tracer's content, moved with its parent's outflows */
 };
 
 /**
- * @brief   One state entry: the content of one reservoir, tracer or observer of one row
+ * @brief   One state entry: the content of one reservoir or tracer of one row
  *
  * A tracer's `parent` is the entry index of a reservoir of the same row whose
  * total differs from the tracer's; one parent has at most one tracer per total.
- * An observer's `flux` is the caller's index of the declared flux it observes;
- * its `total` is not read. Fields a kind does not use are not read.
+ * A reservoir's `parent` is not read.
  */
 struct RateEntry {
   int row;   /* index into RateComponent.row_delta */
   int total; /* conserved total, 0 <= total < RateComponent.num_totals */
   enum RateEntryKind kind;
   int parent; /* a tracer's parent entry */
-  int flux;   /* an observer's flux, 0 <= flux < RateComponent.num_fluxes */
 };
 
 /**
@@ -265,12 +273,14 @@ struct RateComponent {
  * @brief   The laws: fills one coefficient per flux for a given state
  *
  * `evaluate` receives the segment time tau of the evaluation, the state (one
- * value per entry, in the component's entry order, never negative but for an
- * observer, which holds whatever the caller started it at) and the
+ * value per entry, in the component's entry order, never negative) and the
  * coefficient array (one slot per flux, in the component's flux order, zeroed
  * before the call). It returns 0 on success; a non-zero return fails the
  * segment with RATE_CAUSE_BAD_COEFFICIENT and no entry or flux named, since
- * only the law knows what failed. It must not keep the state pointer.
+ * only the law knows what failed. It must not keep the state pointer. The
+ * coefficient array it fills stays valid, and its slots unchanged, until the
+ * next evaluation begins, so the law's data may refer to it until then instead
+ * of copying it.
  */
 struct RateLaw {
   int (*evaluate)(void *data, double tau, const double *state, double *coefficients);
@@ -302,7 +312,7 @@ struct RateAttempt {
   const double *amounts;
 };
 
-/** Scheme, tolerances, budgets and the optional attempt observer of one segment. */
+/** Scheme, tolerances, budgets and the optional attempt callback of one segment. */
 struct RateIntegratorSettings {
   enum RateScheme scheme;        /* RATE_SCHEME_EXPLICIT (default) or RATE_SCHEME_IMPLICIT */
   double relative_tolerance;     /* in (0, 1) */
@@ -353,8 +363,9 @@ enum RateCause {
  *     largest error amount (outflows first, canonical order, on ties);
  *   - while none of these has been met: the start-of-step limiter, the entry
  *     attaining K_max at the step start and its outflow with the largest
- *     coefficient, or, when no entry with content has an outflow, the flux
- *     with the largest start-of-step rate and its donor (recipient for a source).
+ *     coefficient, or, when K_max is zero (no entry with content has an outflow
+ *     with a non-zero coefficient), the flux with the largest start-of-step rate
+ *     and its donor (recipient for a source).
  * - Fixed steps: step_budget names the failing step's start-of-step limiter; a
  *   positivity rejection (rejection_budget) names its own limiter as above.
  * - ledger: `total` names the total and both are -1.
@@ -379,8 +390,8 @@ struct RateStepStats {
   int64_t rejected_steps; /* positivity_rejections + error_rejections */
   int64_t positivity_rejections;
   int64_t error_rejections;
-  int64_t law_evaluations; /* including the explicit first step's probe and the implicit
-                              scheme's evaluation at every trial end */
+  int64_t law_evaluations; /* every stage, and the implicit scheme's evaluation at every trial
+                              end */
   double max_k_max;        /* the largest K_max at any state where the laws were evaluated */
 };
 
@@ -398,10 +409,11 @@ struct RateSegmentOutcome {
  *
  * For every total F, |sum_F end - sum_F start - (Src_F - Snk_F)| must not
  * exceed tol_F = 8u [(L + 2) N_acc + n_F + 2] (sum_F |start| + Src_F + Snk_F),
- * u = 2^-53, every sum taken in entry order. Observer entries are left out.
+ * u = 2^-53, every sum taken in entry order. L is a component-wide maximum
+ * (rate_integrator.h, Segment-end checks).
  */
 struct RateClosureInput {
-  const struct RateEntry *entries; /* [num_entries]: only `total` and `kind` are read */
+  const struct RateEntry *entries; /* [num_entries]: only `total` is read */
   int num_entries;
   int num_totals;
   const double *start_state;    /* [num_entries] */
@@ -412,11 +424,20 @@ struct RateClosureInput {
   int64_t accepted_steps;       /* N_acc */
 };
 
-/** @brief   Fill @p settings with the defaults: explicit scheme, adaptive, no observer. */
+/** @brief   Fill @p settings with the defaults: explicit scheme, adaptive, no attempt callback. */
 void rate_integrator_default_settings(struct RateIntegratorSettings *settings);
 
 /** @brief   The cause's name as the failure messages print it, e.g. "step_underflow". */
 const char *rate_cause_name(enum RateCause cause);
+
+/**
+ * @brief   One sentence naming @p scheme's method and its compile-time step-control constants
+ *
+ * Formatted from the macros the integrator uses, so the recorded description
+ * cannot drift from the constants. The string is static, overwritten only with
+ * the same text. An unknown scheme is a programming error and fatal.
+ */
+const char *rate_integrator_method_description(enum RateScheme scheme);
 
 /**
  * @brief   Workspace bytes rate_integrate_segment() needs for @p component under @p scheme
@@ -433,28 +454,30 @@ size_t rate_integrator_workspace_bytes(const struct RateComponent *component,
  *
  * @param   component       The entries, fluxes, row Delta values and totals
  * @param   law             The laws (coefficients for a state)
- * @param   settings        Scheme, tolerances, budgets, fixed-step count and observer
+ * @param   settings        Scheme, tolerances, budgets, fixed-step count and callback
  * @param   workspace       Caller-owned scratch, aligned for double
  * @param   workspace_bytes At least rate_integrator_workspace_bytes(component, scheme)
  * @param   state           [num_entries]: start state in, end state out on success
  * @param   source_amounts  [num_totals] or NULL: per-total external inflow, out on success
  * @param   sink_amounts    [num_totals] or NULL: per-total external outflow, out on success
+ * @param   flux_amounts    [num_fluxes] or NULL: each declared flux's committed amount over the
+ *                          segment, in the caller's flux order ("Flux amounts"), out on success
  * @param   outcome         Failure record, step statistics and L (always written)
  * @return  RATE_CAUSE_NONE on success, else the failure cause (also in outcome->failure)
  *
  * Inputs outside the domain (a negative reservoir or tracer entry, a negative or
  * non-finite Delta, tolerances outside (0, 1), a malformed flux) are unspecified
  * behaviour. A workspace smaller than required, an unknown scheme, a malformed
- * tracer, observer or slaved-source link, and under the implicit scheme a
- * component it cannot block (see "The implicit scheme" above), are programming
- * errors and fatal.
+ * tracer or slaved-source link, and under the implicit scheme a component it
+ * cannot block (see "The implicit scheme" above), are programming errors and
+ * fatal.
  */
 enum RateCause rate_integrate_segment(const struct RateComponent *component,
                                       const struct RateLaw *law,
                                       const struct RateIntegratorSettings *settings,
                                       void *workspace, size_t workspace_bytes, double *state,
                                       double *source_amounts, double *sink_amounts,
-                                      struct RateSegmentOutcome *outcome);
+                                      double *flux_amounts, struct RateSegmentOutcome *outcome);
 
 /**
  * @brief   Check the segment closure of every total (struct RateClosureInput)

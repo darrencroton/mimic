@@ -197,13 +197,13 @@ def _refusal_rows():
         (
             "the mapping on a core halo property",
             core["name"],
-            "is a halo property",
+            "is a halo (core or simulation) property",
             _validate(_valid_set(), [core]),
         ),
         (
             "the mapping on a simulation halo property",
             "SimHalo",
-            "is a halo property",
+            "is a halo (core or simulation) property",
             _validate(_valid_set(), [_galaxy("SimHalo", {"kind": "observer"})]),
         ),
         (
@@ -346,6 +346,12 @@ def _refusal_rows():
                     _galaxy("Cold", {"kind": "reservoir", "total": "mass", "parent": "Hot"}),
                 )
             ),
+        ),
+        (
+            "an observer with a parent",
+            "Formed",
+            "is an observer and declares a parent",
+            _validate(_with("Formed", _galaxy("Formed", {"kind": "observer", "parent": "Hot"}))),
         ),
     ]
 

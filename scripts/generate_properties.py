@@ -42,6 +42,7 @@ except ImportError:
     print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
     sys.exit(1)
 
+from console import print_warning
 from discovery import (
     REPO_ROOT,
     core_property_files,
@@ -307,8 +308,8 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
     if "reservoir" in prop:
         if category != "galaxy":
             raise ValueError(
-                f"Property '{name}' declares reservoir: but is a {category} property; "
-                "reservoir: applies to galaxy properties only"
+                f"Property '{name}' declares reservoir: but is a halo (core or simulation) "
+                "property; reservoir: applies to galaxy properties only"
             )
         validate_reservoir_mapping(prop)
 
@@ -320,6 +321,11 @@ RESERVOIR_KEYS = ("kind", "total", "parent")
 # A total is named like an identifier: later metadata and messages refer to it by
 # name, and the generated header writes it as a C string literal.
 RESERVOIR_TOTAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _kind_phrase(kind: str) -> str:
+    """Return a reservoir kind with its article: "a reservoir", "a tracer", "an observer"."""
+    return f"an {kind}" if kind[:1] in "aeiou" else f"a {kind}"
 
 
 def validate_reservoir_mapping(prop: Dict[str, Any]) -> None:
@@ -365,7 +371,7 @@ def validate_reservoir_mapping(prop: Dict[str, Any]) -> None:
         total = mapping.get("total")
         if not isinstance(total, str) or not total:
             raise ValueError(
-                f"Property '{name}' is a {kind} and needs a non-empty string total: "
+                f"Property '{name}' is {_kind_phrase(kind)} and needs a non-empty string total: "
                 "naming its conserved total"
             )
         if not RESERVOIR_TOTAL_NAME.fullmatch(total):
@@ -376,7 +382,7 @@ def validate_reservoir_mapping(prop: Dict[str, Any]) -> None:
             )
         if prop.get("init_repeat") is True:
             raise ValueError(
-                f"Property '{name}' is a {kind} with init_repeat: true; a conserved "
+                f"Property '{name}' is {_kind_phrase(kind)} with init_repeat: true; a conserved "
                 "quantity must not be reset each snapshot"
             )
 
@@ -389,7 +395,8 @@ def validate_reservoir_mapping(prop: Dict[str, Any]) -> None:
             )
     elif "parent" in mapping:
         raise ValueError(
-            f"Property '{name}' is a {kind} and declares a parent; only a tracer has one"
+            f"Property '{name}' is {_kind_phrase(kind)} and declares a parent; "
+            "only a tracer has one"
         )
 
 
@@ -452,8 +459,8 @@ def validate_reservoirs(galaxy_props: List[Dict[str, Any]]) -> None:
         first_kind, first_name = total_kind[total]
         if first_kind != kind:
             raise ValueError(
-                f"Property '{name}' is a {kind} in total '{total}', which already holds "
-                f"the {first_kind} '{first_name}'; a total holds reservoirs or tracers, "
+                f"Property '{name}' is {_kind_phrase(kind)} in total '{total}', which already "
+                f"holds the {first_kind} '{first_name}'; a total holds reservoirs or tracers, "
                 "not both"
             )
         first_units, first_units_name = total_units[total]
@@ -494,6 +501,27 @@ def load_yaml_mapping(path: Path) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"{rel(path)}: expected a YAML mapping")
     return data
+
+
+def load_galaxy_property_metadata() -> Dict[str, Dict[str, Any]]:
+    """Load every galaxy property's metadata by name.
+
+    Reads the model's galaxy property files and, in test builds, the fixture-owned
+    test properties (test_property_files() is empty for production builds). The
+    rates: rules read each property's ``reservoir:`` mapping from this view, which the
+    registry generator and the metadata validator both pass them, so a transfer end
+    naming a halo or core property gets the same refusal from both tools.
+    """
+    properties: Dict[str, Dict[str, Any]] = {}
+    for galaxy_props_path in model_property_files() + test_property_files():
+        try:
+            with open(galaxy_props_path, "r", encoding="utf-8") as f:
+                props_yaml = yaml.safe_load(f) or {}
+            for prop in props_yaml.get("galaxy_properties", []) or []:
+                properties[prop["name"]] = prop
+        except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
+            print_warning(f"Failed to load galaxy properties from {rel(galaxy_props_path)}: {e}")
+    return properties
 
 
 def load_core_metadata() -> Dict[str, Any]:
@@ -1031,6 +1059,15 @@ def generate_property_defs_h(
     return code
 
 
+def reservoir_index_symbol(name: str) -> str:
+    """Return the enumerator naming a property's row in the reservoir table.
+
+    The table emitter, the rate-table generator and the generated-name collision
+    rules all spell the symbol through this function.
+    """
+    return f"RESERVOIR_INDEX_{name}"
+
+
 def build_reservoir_table(
     galaxy_props: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
@@ -1108,7 +1145,8 @@ def generate_reservoir_table_h(galaxy_props: List[Dict[str, Any]], yaml_hash: st
     if entries:
         code += "enum ReservoirIndex {\n"
         code += ",\n".join(
-            f"  RESERVOIR_INDEX_{entry['name']} = {index}" for index, entry in enumerate(entries)
+            f"  {reservoir_index_symbol(entry['name'])} = {index}"
+            for index, entry in enumerate(entries)
         )
         code += "\n};\n\n"
         code += "static inline const struct ReservoirEntry *mimic_reservoir_table(void) {\n"

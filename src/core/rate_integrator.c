@@ -22,12 +22,13 @@
  * The implicit scheme (Patankar-Euler, coefficients frozen at the step start)
  * solves one block per row and total in the subtraction-free
  * Grassmann-Taksar-Heyman form; its section below gives the algorithm. The two
- * schemes share the flux lists, the laws, the error norm, the commit and the
- * segment-end checks. rate_integrator.h states the contract.
+ * schemes share the flux lists, the laws, the error norm, the adaptive driver,
+ * the commit and the segment-end checks. rate_integrator.h states the contract.
  */
 
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -46,12 +47,7 @@
 #define SCALE_FLOOR 1e-12
 /* The smallest step, in tau. */
 #define MIN_STEP 0x1p-46
-/* First-step rule (Hairer and Wanner): thresholds, target and growth bound. */
-#define FIRST_STEP_SMALL 1e-5
-#define FIRST_STEP_TINY 1e-15
-#define FIRST_STEP_TARGET 0.01
-#define FIRST_STEP_GROWTH 100.0
-/* Segment closure: 8u with u = 2^-53. */
+/* Segment closure and tracer bound: 8u with u = 2^-53. */
 #define CLOSURE_FACTOR 0x1p-50
 
 /**
@@ -62,26 +58,29 @@ struct FluxKey {
   int row;
   int global_index;
   int tracer; /* a tracer move's tracer entry; -1 for a declared flux */
-  int index;  /* the internal flux index; breaks ties only for a malformed description */
+  /* The internal flux index: keeps the caller's order among fluxes that share the rest of the
+   * key (one central-bound source evaluated on several rows). */
+  int index;
 };
 
 /**
  * Scratch carved from the caller's workspace (n entries, m internal fluxes: the
- * caller's declared fluxes, then room for the tracer moves; R rows, T totals).
+ * caller's declared fluxes, then room for the tracer moves; d declared fluxes;
+ * R rows, T totals).
  */
 struct Scratch {
   double *x;             /* [n] accepted state at the current step start */
-  double *trial;         /* [n] trial end state; the first step keeps the start weights here */
-  double *stage;         /* [n] stage state, or the first step's probe state */
-  double *net0;          /* [n] first step: net rate at the start */
-  double *net1;          /* [n] first step: net rate at the probe */
+  double *trial;         /* [n] trial end state */
+  double *stage;         /* [n] stage state, or the attempt's per-entry error */
   double *coef;          /* [m] coefficients of the latest law evaluation */
   double *phi[4];        /* [m] each: flux rates of stages 1 to 4, tau units */
   double *sum3;          /* [m] phi[0] + phi[1] + phi[2] */
   double *amount;        /* [m] amounts of the current stage, then of the update */
   double *error_amount;  /* [m] (b - bhat) amounts of the attempt */
+  double *group_segment; /* [R * T] row sums of each total at the segment start */
   double *group_start;   /* [R * T] row sums of each total at the step start */
   double *group_trial;   /* [R * T] row sums of each total at the trial end */
+  double *total_segment; /* [T] component sums at the segment start */
   double *total_start;   /* [T] component sums at the step start */
   double *total_trial;   /* [T] component sums at the trial end */
   double *source_entry;  /* [n] external inflow into each entry over accepted steps */
@@ -89,6 +88,7 @@ struct Scratch {
   double *source;        /* [T] per-total sums of source_entry, formed once at segment end */
   double *sink;          /* [T] per-total sums of sink_entry, formed once at segment end */
   double *inflow_entry;  /* [n] inflow into each entry over accepted steps (tracer bound) */
+  double *flux_amount;   /* [d] each declared flux's committed amount over accepted steps */
   struct RateFlux *flux; /* [m] declared fluxes as given, then the derived tracer moves */
   struct FluxKey *keys;  /* [m] */
   int *order;            /* [m] internal flux indices in canonical order */
@@ -107,11 +107,11 @@ struct Scratch {
   double *error_flux;   /* [m] per-flux amounts of the error solve */
   double *excess;       /* [n] each entry's column excess while its block is factorised */
   double *pivot;        /* [n] each entry's pivot */
-  double *filtered;     /* [n] the error estimate M^-1 (dt/2) (F(x_{n+1}) - F(x_n)) */
+  double *filtered;     /* [n] the error estimate M^-1 M^-1 (dt/2) (F(x_{n+1}) - F(x_n)) */
   double *dense;        /* [sum of block sizes squared] each block's off-diagonals, then its
                            factors: l below the diagonal, U's off-diagonal magnitudes above */
   size_t *block_offset; /* [n] each block's offset into dense */
-  int *block_of;        /* [n] each entry's block; -1 for an observer */
+  int *block_of;        /* [n] each entry's block */
   int *local_of;        /* [n] each entry's position in its block */
   int *block_start;     /* [n + 1] CSR offsets into block_member */
   int *block_member;    /* [n] each block's entries, entry order */
@@ -133,18 +133,20 @@ struct Integration {
   const struct RateIntegratorSettings *settings;
   struct RateSegmentOutcome *outcome;
   struct Scratch s;
-  int num_declared;  /* the caller's fluxes: internal indices 0 .. num_declared - 1 */
-  int num_fluxes;    /* declared fluxes plus tracer moves */
-  int num_tracers;   /* tracer entries */
-  double k_start;    /* K_max at the current step start */
-  int k_start_entry; /* the entry attaining it, or -1 */
-  int k_start_flux;  /* that entry's outflow with the largest coefficient, or -1 */
-  int start_entry;   /* the start-of-step limiter: the K_max entry and flux above, or */
-  int start_flux;    /* without one the largest-rate flux and its donor (or recipient) */
-  int limit_entry;   /* the latest limiter, for the failure record (rate_integrator.h) */
+  int implicit;          /* the scheme is RATE_SCHEME_IMPLICIT */
+  size_t move_capacity;  /* room for tracer moves (tracer_move_capacity()) */
+  size_t dense_capacity; /* implicit scheme: doubles in s.dense (implicit_dense_capacity()) */
+  int num_declared;      /* the caller's fluxes: internal indices 0 .. num_declared - 1 */
+  int num_fluxes;        /* declared fluxes plus tracer moves */
+  int num_tracers;       /* tracer entries */
+  double k_start;        /* K_max at the current step start */
+  int k_start_entry;     /* the entry attaining it, or -1 */
+  int k_start_flux;      /* that entry's outflow with the largest coefficient, or -1 */
+  int start_entry;       /* the start-of-step limiter: the K_max entry and flux above, or */
+  int start_flux;        /* without one the largest-rate flux and its donor (or recipient) */
+  int limit_entry;       /* the latest limiter, for the failure record (rate_integrator.h) */
   int limit_flux;
-  int num_blocks;        /* implicit scheme: blocks, one per (row, total) with entries */
-  size_t dense_capacity; /* implicit scheme: doubles in s.dense */
+  int num_blocks; /* implicit scheme: blocks, one per (row, total) with entries */
 };
 
 /** How one attempted step ended. */
@@ -202,12 +204,8 @@ static size_t implicit_dense_capacity(const struct RateComponent *c) {
       run_end++;
     }
     for (int a = run_start; a < run_end; a++) {
-      if (c->entries[a].kind == RATE_ENTRY_OBSERVER) {
-        continue;
-      }
       for (int b = run_start; b < run_end; b++) {
-        if (c->entries[b].kind != RATE_ENTRY_OBSERVER &&
-            c->entries[b].total == c->entries[a].total) {
+        if (c->entries[b].total == c->entries[a].total) {
           capacity++;
         }
       }
@@ -228,13 +226,17 @@ static void check_scheme(enum RateScheme scheme) {
 /**
  * @brief   Lay the scratch out over @p base (or only measure it when NULL); returns the bytes
  *
- * The explicit layout comes first and is the same under both schemes; the
- * implicit scheme's arrays follow it, and are NULL under the explicit scheme.
+ * @p move_capacity and @p dense_capacity are tracer_move_capacity() and, under
+ * the implicit scheme, implicit_dense_capacity() of @p c, computed once by the
+ * caller. The explicit layout comes first and is the same under both schemes;
+ * the implicit scheme's arrays follow it, and are NULL under the explicit scheme.
  */
-static size_t layout_scratch(const struct RateComponent *c, enum RateScheme scheme, char *base,
+static size_t layout_scratch(const struct RateComponent *c, enum RateScheme scheme,
+                             size_t move_capacity, size_t dense_capacity, char *base,
                              struct Scratch *s) {
   const size_t n = (size_t)c->num_entries;
-  const size_t m = (size_t)c->num_fluxes + tracer_move_capacity(c);
+  const size_t declared = (size_t)c->num_fluxes;
+  const size_t m = declared + move_capacity;
   const size_t totals = (size_t)c->num_totals;
   const size_t rows = (size_t)c->num_rows;
   const size_t groups = rows * totals;
@@ -243,8 +245,6 @@ static size_t layout_scratch(const struct RateComponent *c, enum RateScheme sche
   s->x = carve(base, &offset, n, sizeof(double));
   s->trial = carve(base, &offset, n, sizeof(double));
   s->stage = carve(base, &offset, n, sizeof(double));
-  s->net0 = carve(base, &offset, n, sizeof(double));
-  s->net1 = carve(base, &offset, n, sizeof(double));
   s->coef = carve(base, &offset, m, sizeof(double));
   for (int k = 0; k < 4; k++) {
     s->phi[k] = carve(base, &offset, m, sizeof(double));
@@ -252,8 +252,10 @@ static size_t layout_scratch(const struct RateComponent *c, enum RateScheme sche
   s->sum3 = carve(base, &offset, m, sizeof(double));
   s->amount = carve(base, &offset, m, sizeof(double));
   s->error_amount = carve(base, &offset, m, sizeof(double));
+  s->group_segment = carve(base, &offset, groups, sizeof(double));
   s->group_start = carve(base, &offset, groups, sizeof(double));
   s->group_trial = carve(base, &offset, groups, sizeof(double));
+  s->total_segment = carve(base, &offset, totals, sizeof(double));
   s->total_start = carve(base, &offset, totals, sizeof(double));
   s->total_trial = carve(base, &offset, totals, sizeof(double));
   s->source_entry = carve(base, &offset, n, sizeof(double));
@@ -261,6 +263,7 @@ static size_t layout_scratch(const struct RateComponent *c, enum RateScheme sche
   s->source = carve(base, &offset, totals, sizeof(double));
   s->sink = carve(base, &offset, totals, sizeof(double));
   s->inflow_entry = carve(base, &offset, n, sizeof(double));
+  s->flux_amount = carve(base, &offset, declared, sizeof(double));
   s->flux = carve(base, &offset, m, sizeof(struct RateFlux));
   s->keys = carve(base, &offset, m, sizeof(struct FluxKey));
   s->order = carve(base, &offset, m, sizeof(int));
@@ -287,7 +290,7 @@ static size_t layout_scratch(const struct RateComponent *c, enum RateScheme sche
   s->excess = carve(base, &offset, n, sizeof(double));
   s->pivot = carve(base, &offset, n, sizeof(double));
   s->filtered = carve(base, &offset, n, sizeof(double));
-  s->dense = carve(base, &offset, implicit_dense_capacity(c), sizeof(double));
+  s->dense = carve(base, &offset, dense_capacity, sizeof(double));
   s->block_offset = carve(base, &offset, n, sizeof(size_t));
   s->block_of = carve(base, &offset, n, sizeof(int));
   s->local_of = carve(base, &offset, n, sizeof(int));
@@ -309,7 +312,8 @@ size_t rate_integrator_workspace_bytes(const struct RateComponent *component,
                                        enum RateScheme scheme) {
   check_scheme(scheme);
   struct Scratch unused;
-  return layout_scratch(component, scheme, NULL, &unused);
+  const size_t dense = (scheme == RATE_SCHEME_IMPLICIT) ? implicit_dense_capacity(component) : 0;
+  return layout_scratch(component, scheme, tracer_move_capacity(component), dense, NULL, &unused);
 }
 
 /* ---------------------------------------------------------------------------
@@ -415,19 +419,12 @@ static void build_tracer_lists(struct Integration *in) {
 }
 
 /**
- * @brief   Check every observer's flux and every slaved source's master; fatal when malformed
+ * @brief   Check every slaved source's master; fatal when malformed
  *
  * Slaved sources are one level deep: a master is a declared internal transfer
  * or sink, never a source or another slaved source.
  */
-static void check_links(const struct RateComponent *c) {
-  for (int i = 0; i < c->num_entries; i++) {
-    const struct RateEntry *entry = &c->entries[i];
-    if (entry->kind == RATE_ENTRY_OBSERVER && (entry->flux < 0 || entry->flux >= c->num_fluxes)) {
-      FATAL_ERROR("Rate observer entry %d names flux %d, which the component does not declare", i,
-                  entry->flux);
-    }
-  }
+static void check_masters(const struct RateComponent *c) {
   for (int f = 0; f < c->num_fluxes; f++) {
     if (c->fluxes[f].kind != RATE_FLUX_SLAVED) {
       continue;
@@ -465,7 +462,7 @@ static int tracer_in_total(const struct Integration *in, int parent, int total) 
 static void derive_tracer_moves(struct Integration *in) {
   const struct RateComponent *c = in->c;
   struct Scratch *s = &in->s;
-  const size_t capacity = tracer_move_capacity(c);
+  const size_t capacity = in->move_capacity;
   int count = c->num_fluxes;
 
   memcpy(s->flux, c->fluxes, (size_t)c->num_fluxes * sizeof(struct RateFlux));
@@ -517,7 +514,7 @@ static int build_flux_lists(struct Integration *in) {
   const int n = c->num_entries;
 
   build_tracer_lists(in);
-  check_links(c);
+  check_masters(c);
   derive_tracer_moves(in);
   const int m = in->num_fluxes;
 
@@ -694,7 +691,8 @@ static int largest_outflow(const struct Integration *in, int entry, const double
  * @brief   K_max at @p state from the latest coefficients
  *
  * The largest Delta * (sum of outflow coefficients) over entries with non-zero
- * content; 0 when no such entry has an outflow. Feeds the step statistics.
+ * content; 0 when no entry with content has an outflow with a non-zero
+ * coefficient on a row of positive Delta. Feeds the step statistics.
  */
 static double k_max(struct Integration *in, const double *state, int *argmax) {
   const struct RateComponent *c = in->c;
@@ -731,16 +729,18 @@ static double positivity_cap(double k) {
 
 /**
  * @brief   Form (x - sum of outflow amounts) + sum of inflow amounts per entry
- * @return  The first reservoir or tracer entry below zero or not a number, or -1
+ * @return  The first entry below zero or not a number, or -1
  *
- * An observer has no flux lists, so it keeps its value here; commit_step() adds
- * its amount.
+ * The loop only flags a bad entry, and a second pass, taken only then, finds
+ * the first: a first-index search inside the loop chains each entry to the one
+ * before it, which measured about 30% of the explicit step's time (clang -O2).
  */
 static int form_state(const struct Integration *in, const double *x, const double *amount,
                       double *out) {
   const struct Scratch *s = &in->s;
-  int first_bad = -1;
-  for (int i = 0; i < in->c->num_entries; i++) {
+  const int n = in->c->num_entries;
+  int any_bad = 0;
+  for (int i = 0; i < n; i++) {
     double outflow = 0.0;
     for (int k = s->out_start[i]; k < s->out_start[i + 1]; k++) {
       outflow += amount[s->out_list[k]];
@@ -751,11 +751,14 @@ static int form_state(const struct Integration *in, const double *x, const doubl
     }
     const double value = (x[i] - outflow) + inflow;
     out[i] = value;
-    if (!(value >= 0.0) && first_bad < 0 && in->c->entries[i].kind != RATE_ENTRY_OBSERVER) {
-      first_bad = i;
+    any_bad |= !(value >= 0.0);
+  }
+  for (int i = 0; i < n && any_bad; i++) {
+    if (!(out[i] >= 0.0)) {
+      return i;
     }
   }
-  return first_bad;
+  return -1;
 }
 
 /** Net change per entry from per-flux @p values: sum of inflows less sum of outflows. */
@@ -778,9 +781,10 @@ static void net_change(const struct Integration *in, const double *values, doubl
  * @brief   Set the start-of-step limiter from the stage-1 coefficients and rates
  *
  * The entry attaining K_max and its outflow with the largest coefficient; when
- * no entry with content has an outflow, the flux with the largest stage-1 rate
- * (first in canonical order on ties) and its donor, or its recipient for a
- * source. It seeds the failure record's limiter while no other limiter is set.
+ * K_max is zero (no entry with content has an outflow with a non-zero
+ * coefficient), the flux with the largest stage-1 rate (first in canonical order
+ * on ties) and its donor, or its recipient for a source. It seeds the failure
+ * record's limiter while no other limiter is set.
  */
 static void set_start_limiter(struct Integration *in) {
   const struct Scratch *s = &in->s;
@@ -835,7 +839,7 @@ static enum RateCause begin_step(struct Integration *in, double tau, double step
  * Error estimate
  * ------------------------------------------------------------------------- */
 
-/** Per-row and per-component sums of each total at @p state, in entry order; no observer. */
+/** Per-row and per-component sums of each total at @p state, in entry order. */
 static void sum_totals(const struct Integration *in, const double *state, double *group,
                        double *total) {
   const struct RateComponent *c = in->c;
@@ -844,9 +848,6 @@ static void sum_totals(const struct Integration *in, const double *state, double
   memset(total, 0, (size_t)totals * sizeof(double));
   for (int i = 0; i < c->num_entries; i++) {
     const struct RateEntry *entry = &c->entries[i];
-    if (entry->kind == RATE_ENTRY_OBSERVER) {
-      continue;
-    }
     group[(size_t)entry->row * (size_t)totals + (size_t)entry->total] += state[i];
     total[entry->total] += state[i];
   }
@@ -861,9 +862,10 @@ static int scale_total(const struct RateComponent *c, int i) {
 /**
  * @brief   err = max_i |e_i| / w_i of the attempt (rate_integrator.h, Error control)
  *
- * @p error holds e_i per entry; the weights use the step start s.x and the trial
- * end s.trial. Records the entry with the largest ratio, and its flux with the
- * largest error amount in s.error_amount, as the step's limiter.
+ * @p error holds e_i per entry; the weights use the segment start (its sums,
+ * formed once per segment), the step start s.x and the trial end s.trial.
+ * Records the entry with the largest ratio, and its flux with the largest error
+ * amount in s.error_amount, as the step's limiter.
  */
 static double weighted_error_norm(struct Integration *in, const double *error, double *min_weight) {
   const struct RateComponent *c = in->c;
@@ -878,13 +880,11 @@ static double weighted_error_norm(struct Integration *in, const double *error, d
   double smallest_weight = INFINITY;
   int arg = -1;
   for (int i = 0; i < c->num_entries; i++) {
-    if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
-      continue;
-    }
     const int t = scale_total(c, i);
     const size_t g = (size_t)c->entries[i].row * (size_t)c->num_totals + (size_t)t;
-    double scale = fmax(s->group_start[g], s->group_trial[g]);
-    const double scale_floor = SCALE_FLOOR * fmax(s->total_start[t], s->total_trial[t]);
+    double scale = fmax(s->group_segment[g], fmax(s->group_start[g], s->group_trial[g]));
+    const double scale_floor =
+        SCALE_FLOOR * fmax(s->total_segment[t], fmax(s->total_start[t], s->total_trial[t]));
     if (scale < scale_floor) {
       scale = scale_floor;
     }
@@ -925,12 +925,16 @@ static double weighted_error_norm(struct Integration *in, const double *error, d
   return norm;
 }
 
-/** The controller's step factor 0.9 err^(-1/3), clamped to [0.2, 5]. */
-static double step_factor(double norm) {
+/**
+ * The controller's step factor, clamped to [0.2, 5]: 0.9 err^(-1/3) under the
+ * explicit scheme, whose estimate scales as step^3, and 0.9 err^(-1/2) under the
+ * implicit scheme, whose estimate scales as step^2.
+ */
+static double step_factor(const struct Integration *in, double norm) {
   if (norm == 0.0) {
     return CONTROLLER_MAX_FACTOR;
   }
-  const double factor = CONTROLLER_SAFETY / cbrt(norm);
+  const double factor = CONTROLLER_SAFETY / (in->implicit ? sqrt(norm) : cbrt(norm));
   return fmin(CONTROLLER_MAX_FACTOR, fmax(CONTROLLER_MIN_FACTOR, factor));
 }
 
@@ -1035,7 +1039,7 @@ static enum AttemptResult attempt_step(struct Integration *in, double tau, doubl
 
   /* Update with b = (1/6, 1/6, 1/6, 1/2); error amounts with d = b - bhat. A flux whose two
    * ends are one entry moves nothing, so its committed amount, the one the attempt report and
-   * the observers read, is zero. */
+   * the segment's flux amounts read, is zero. */
   for (int f = 0; f < m; f++) {
     const double phi3 = s->phi[3][f];
     const int moves = s->flux[f].from != s->flux[f].to;
@@ -1061,11 +1065,9 @@ static enum AttemptResult attempt_step(struct Integration *in, double tau, doubl
  * Each external amount accumulates on its own entry, so an entry's accumulator
  * takes at most its own flux terms per step and its rounding stays inside the
  * closure tolerance's (L + 2) N_acc terms; the per-total sums are formed once at
- * segment end (sum_external_amounts()). Each observer adds its flux's committed
- * amount, the number that moved (zero for a flux whose two ends are one entry,
- * attempt_step()); under the implicit scheme implicit_attempt() has already
- * put that sum in the trial, where its trial-end law evaluation reads it, so it
- * is not added again. With tracers present, each entry's inflow amounts
+ * segment end (sum_external_amounts()). Each declared flux's committed amount,
+ * the number that moved (zero for a flux whose two ends are one entry), adds to
+ * its segment amount. With tracers present, each entry's inflow amounts
  * accumulate the same way for the tracer bound's throughput.
  */
 static void commit_step(struct Integration *in) {
@@ -1083,13 +1085,11 @@ static void commit_step(struct Integration *in) {
       s->sink_entry[flux->from] += s->amount[f];
     }
   }
-  for (int i = 0; i < c->num_entries; i++) {
-    const struct RateEntry *entry = &c->entries[i];
-    if (entry->kind == RATE_ENTRY_OBSERVER) {
-      if (in->settings->scheme != RATE_SCHEME_IMPLICIT) {
-        s->x[i] += s->amount[entry->flux];
-      }
-    } else if (in->num_tracers > 0) {
+  for (int f = 0; f < in->num_declared; f++) {
+    s->flux_amount[f] += s->amount[f];
+  }
+  if (in->num_tracers > 0) {
+    for (int i = 0; i < c->num_entries; i++) {
       double inflow = 0.0;
       for (int k = s->in_start[i]; k < s->in_start[i + 1]; k++) {
         inflow += s->amount[s->in_list[k]];
@@ -1107,9 +1107,6 @@ static void sum_external_amounts(struct Integration *in) {
   memset(s->source, 0, (size_t)c->num_totals * sizeof(double));
   memset(s->sink, 0, (size_t)c->num_totals * sizeof(double));
   for (int i = 0; i < c->num_entries; i++) {
-    if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
-      continue;
-    }
     s->source[c->entries[i].total] += s->source_entry[i];
     s->sink[c->entries[i].total] += s->sink_entry[i];
   }
@@ -1127,112 +1124,8 @@ static void count_rejection(struct Integration *in, enum AttemptResult result) {
 }
 
 /* ---------------------------------------------------------------------------
- * Step-size selection and the two drivers
+ * Landing, budgets and rejections, shared by both schemes
  * ------------------------------------------------------------------------- */
-
-/**
- * @brief   The segment-start weights w0 and the first-step ratios d0 and d1
- *
- * w0_i = absolute_tolerance * S + relative_tolerance * |x0_i|, S the entry's row
- * sum of its total floored at 1e-12 of the component's (rate_integrator.h,
- * Error control); d0 = max |x0_i| / w0_i and d1 = max |F0_i| / w0_i, F0 the net
- * rate from the stage-1 rates s.phi[0] (kept in s.net0). An entry is left out,
- * with weight zero here, when its weight is zero, when it is an observer, or
- * when its own row's sum of its total (its parent's, for a tracer) is zero:
- * the floored scale would give it a weight near 1e-12 of the component's and a
- * first step far below the minimum, so the error control governs it from the
- * first step through the trial-end scale instead.
- *
- * @return  1 when some entry is left in, else 0 (d0 and d1 are then 0)
- */
-static int start_weights(struct Integration *in, double *start_weight, double *d0, double *d1) {
-  const struct RateComponent *c = in->c;
-  struct Scratch *s = &in->s;
-  const double atol = in->settings->absolute_tolerance;
-  const double rtol = in->settings->relative_tolerance;
-
-  sum_totals(in, s->x, s->group_start, s->total_start);
-  net_change(in, s->phi[0], s->net0);
-  int weighted = 0;
-  *d0 = 0.0;
-  *d1 = 0.0;
-  for (int i = 0; i < c->num_entries; i++) {
-    if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
-      start_weight[i] = 0.0; /* no weight: left out of d0, d1 and d2 */
-      continue;
-    }
-    const int t = scale_total(c, i);
-    const size_t g = (size_t)c->entries[i].row * (size_t)c->num_totals + (size_t)t;
-    if (!(s->group_start[g] > 0.0)) {
-      start_weight[i] = 0.0; /* an empty row of its total: left out */
-      continue;
-    }
-    const double scale = fmax(s->group_start[g], SCALE_FLOOR * s->total_start[t]);
-    start_weight[i] = atol * scale + rtol * fabs(s->x[i]);
-    if (start_weight[i] > 0.0) {
-      weighted = 1;
-      *d0 = fmax(*d0, fabs(s->x[i]) / start_weight[i]);
-      *d1 = fmax(*d1, fabs(s->net0[i]) / start_weight[i]);
-    }
-  }
-  return weighted;
-}
-
-/**
- * @brief   The first step (Hairer and Wanner, adapted to the norm and the cap)
- *
- * Uses the stage-1 rates already evaluated at the segment start. Entries are
- * left out as start_weights() states (zero weight, or an empty row of their
- * total); when all are, the step is min(1, cap) with no probe. Otherwise one
- * forward-Euler probe, non-negative under the cap sigma / K_max, costs one
- * extra law evaluation.
- */
-static enum RateCause first_step(struct Integration *in, double *step) {
-  const struct RateComponent *c = in->c;
-  struct Scratch *s = &in->s;
-  const double cap = positivity_cap(in->k_start);
-  double *start_weight = s->trial; /* free until the first attempt */
-  double d0;
-  double d1;
-
-  if (!start_weights(in, start_weight, &d0, &d1)) {
-    *step = fmin(1.0, cap);
-    return RATE_CAUSE_NONE;
-  }
-
-  double h0 = (d0 < FIRST_STEP_SMALL || d1 < FIRST_STEP_SMALL) ? 1.0 : FIRST_STEP_TARGET * d0 / d1;
-  h0 = fmin(h0, 1.0);
-  if (in->k_start > 0.0) {
-    h0 = fmin(h0, POSITIVITY_MARGIN / in->k_start);
-  }
-  for (int f = 0; f < in->num_fluxes; f++) {
-    s->amount[f] = h0 * s->phi[0][f];
-  }
-  /* Outflows take at most sigma of each entry, so the probe cannot go negative
-   * inside the input domain; this guard keeps any law off a state that did. */
-  if (!(h0 > 0.0) || form_state(in, s->x, s->amount, s->stage) >= 0) {
-    *step = fmin(h0, cap);
-    return RATE_CAUSE_NONE;
-  }
-  const enum RateCause cause = evaluate_law(in, h0, s->stage, 0.0, h0);
-  if (cause != RATE_CAUSE_NONE) {
-    return cause;
-  }
-  flux_rates(in, s->stage, s->phi[1]);
-  (void)k_max(in, s->stage, NULL);
-  net_change(in, s->phi[1], s->net1);
-  double d2 = 0.0;
-  for (int i = 0; i < c->num_entries; i++) {
-    if (start_weight[i] > 0.0) {
-      d2 = fmax(d2, fabs(s->net1[i] - s->net0[i]) / start_weight[i]);
-    }
-  }
-  d2 /= h0;
-  const double d_max = fmax(d1, d2);
-  const double h1 = (d_max <= FIRST_STEP_TINY) ? 1.0 : cbrt(FIRST_STEP_TARGET / d_max);
-  *step = fmin(fmin(FIRST_STEP_GROWTH * h0, h1), fmin(1.0, cap));
-  return RATE_CAUSE_NONE;
-}
 
 /**
  * @brief   Land on tau = 1, then check the minimum step and the attempt budget
@@ -1281,76 +1174,6 @@ static enum RateCause reject_attempt(struct Integration *in, enum AttemptResult 
                           step);
   }
   return RATE_CAUSE_NONE;
-}
-
-/** The explicit adaptive driver: first step, then accept/reject with the controller. */
-static enum RateCause integrate_adaptive(struct Integration *in) {
-  double tau = 0.0;
-  double step = 0.0;
-  enum RateCause cause = begin_step(in, tau, step);
-  if (cause != RATE_CAUSE_NONE) {
-    return cause;
-  }
-  cause = first_step(in, &step);
-  if (cause != RATE_CAUSE_NONE) {
-    return cause;
-  }
-
-  int64_t attempts = 0;
-  int consecutive_rejections = 0;
-  int after_rejection = 0;
-  for (;;) {
-    const double cap = positivity_cap(in->k_start);
-    if (step >= cap) {
-      step = cap;
-      in->limit_entry = in->k_start_entry;
-      in->limit_flux = in->k_start_flux;
-    }
-    int last;
-    cause = prepare_attempt(in, tau, cap, &step, &attempts, &last);
-    if (cause != RATE_CAUSE_NONE) {
-      return cause;
-    }
-
-    double norm;
-    double min_weight;
-    double k_seen;
-    const enum AttemptResult result = attempt_step(in, tau, step, 1, &norm, &min_weight, &k_seen);
-    if (result == ATTEMPT_FAILED) {
-      return in->outcome->failure.cause;
-    }
-    if (result == ATTEMPT_ACCEPTED) {
-      commit_step(in);
-      report_attempt(in, tau, step, 1, RATE_REJECTION_NONE, norm, min_weight);
-      if (last) {
-        return RATE_CAUSE_NONE;
-      }
-      tau += step;
-      double factor = step_factor(norm);
-      if (after_rejection && factor > 1.0) {
-        factor = 1.0;
-      }
-      step *= factor;
-      after_rejection = 0;
-      consecutive_rejections = 0;
-      cause = begin_step(in, tau, step);
-      if (cause != RATE_CAUSE_NONE) {
-        return cause;
-      }
-      continue;
-    }
-
-    after_rejection = 1;
-    cause = reject_attempt(in, result, tau, step, norm, min_weight, &consecutive_rejections);
-    if (cause != RATE_CAUSE_NONE) {
-      return cause;
-    }
-    if (result == ATTEMPT_REJECTED_POSITIVITY) {
-      step = fmin(0.5 * step, positivity_cap(k_seen));
-    } else {
-      step *= step_factor(norm);
-    }
-  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1550,10 +1373,6 @@ static int implicit_build_blocks(struct Integration *in) {
     if (i == 0 || entry->row != c->entries[i - 1].row) {
       row_entries = 0;
     }
-    if (entry->kind == RATE_ENTRY_OBSERVER) {
-      s->block_of[i] = -1;
-      continue;
-    }
     if (++row_entries > largest_row) {
       largest_row = row_entries;
     }
@@ -1566,9 +1385,7 @@ static int implicit_build_blocks(struct Integration *in) {
   }
   counts_to_offsets(s->block_start, blocks);
   for (int i = 0; i < n; i++) {
-    if (s->block_of[i] >= 0) {
-      s->block_member[s->block_start[s->block_of[i]]++] = i;
-    }
+    s->block_member[s->block_start[s->block_of[i]]++] = i;
   }
   restore_offsets(s->block_start, blocks);
 
@@ -1609,7 +1426,6 @@ static int implicit_prepare(struct Integration *in, int max_terms) {
   implicit_check_rows(in);
   implicit_order_totals(in);
   implicit_order_rows(in);
-  in->dense_capacity = implicit_dense_capacity(in->c);
   const int largest_row = implicit_build_blocks(in);
   return (largest_row > max_terms) ? largest_row : max_terms;
 }
@@ -1730,8 +1546,8 @@ static enum RateCause implicit_factor(struct Integration *in, double tau, double
  * slaved sources and the transfers out of blocks solved before it. @p amount
  * receives each flux's amount: step x rate times the donor's solved value for a
  * transfer or sink, the coefficient times the master's amount for a slaved
- * source, zero for a flux that moves nothing. Observers in @p out are not
- * written.
+ * source, zero for a flux that moves nothing. @p base may be @p out: each
+ * entry's base is read once, before its block writes it.
  */
 static void implicit_solve(struct Integration *in, int with_sources, const double *base,
                            double *out, double *amount) {
@@ -1812,14 +1628,14 @@ static enum RateCause evaluate_trial(struct Integration *in, double tau, double 
 /**
  * @brief   Attempt one implicit step of length @p step from the accepted state at @p tau
  *
- * On acceptance s.trial holds the end state, observers included at their
- * committed values, and s.amount the committed amounts, so the trial end the
- * laws are evaluated at is exactly the state the next step starts from. With
- * @p adaptive the laws are evaluated at the trial end and the filtered
- * estimate M^-1 (dt/2) (F(x_{n+1}) - F(x_n)) is weighed: @p norm and
- * @p min_weight are written then, and left negative otherwise. A solved entry
- * that is not finite and non-negative (an overflow) rejects the attempt
- * before any law sees it.
+ * On acceptance s.trial holds the end state and s.amount the committed amounts,
+ * so the trial end the laws are evaluated at is exactly the state the next step
+ * starts from. With @p adaptive the laws are evaluated at the trial end and the
+ * twice-filtered estimate M^-1 M^-1 (dt/2) (F(x_{n+1}) - F(x_n)) is weighed:
+ * @p norm and @p min_weight are written then, and left negative otherwise. The
+ * second solve reuses the factors of the first and needs no law evaluation. A
+ * solved entry that is not finite and non-negative (an overflow) rejects the
+ * attempt before any law sees it.
  */
 static enum AttemptResult implicit_attempt(struct Integration *in, double tau, double step,
                                            int adaptive, double *norm, double *min_weight) {
@@ -1832,19 +1648,11 @@ static enum AttemptResult implicit_attempt(struct Integration *in, double tau, d
     return ATTEMPT_FAILED;
   }
   implicit_solve(in, 1, s->x, s->trial, s->amount);
-  int bad = -1;
   for (int i = 0; i < c->num_entries; i++) {
-    if (c->entries[i].kind == RATE_ENTRY_OBSERVER) {
-      /* The committed value, as the trial-end law evaluation must see it; commit_step() keeps it.
-       */
-      s->trial[i] = s->x[i] + s->amount[c->entries[i].flux];
-    } else if (bad < 0 && (!(s->trial[i] >= 0.0) || isinf(s->trial[i]))) {
-      bad = i;
+    if (!(s->trial[i] >= 0.0) || isinf(s->trial[i])) {
+      limit_by_negative_entry(in, i);
+      return ATTEMPT_REJECTED_POSITIVITY;
     }
-  }
-  if (bad >= 0) {
-    limit_by_negative_entry(in, bad);
-    return ATTEMPT_REJECTED_POSITIVITY;
   }
   if (!adaptive) {
     return ATTEMPT_ACCEPTED;
@@ -1859,62 +1667,91 @@ static enum AttemptResult implicit_attempt(struct Integration *in, double tau, d
   }
   net_change(in, s->error_amount, s->stage);
   implicit_solve(in, 0, s->stage, s->filtered, s->error_flux);
+  implicit_solve(in, 0, s->filtered, s->filtered, s->error_flux);
   *norm = weighted_error_norm(in, s->filtered, min_weight);
   return (*norm <= 1.0) ? ATTEMPT_ACCEPTED : ATTEMPT_REJECTED_ERROR;
 }
 
-/**
- * @brief   The implicit first step: h0 of the explicit rule, with no probe and no cap
- *
- * 1 when start_weights() leaves every entry out, or when d0 or d1 is below
- * 1e-5; otherwise min(1, 0.01 d0 / d1).
- */
-static double implicit_first_step(struct Integration *in) {
-  double d0;
-  double d1;
-  if (!start_weights(in, in->s.trial, &d0, &d1) || d0 < FIRST_STEP_SMALL || d1 < FIRST_STEP_SMALL) {
-    return 1.0;
-  }
-  return fmin(1.0, FIRST_STEP_TARGET * d0 / d1);
-}
+/* ---------------------------------------------------------------------------
+ * The drivers: adaptive and fixed steps, under either scheme
+ * ------------------------------------------------------------------------- */
 
-/** The implicit controller's step factor 0.9 err^(-1/2), clamped to [0.2, 5]. */
-static double implicit_step_factor(double norm) {
-  if (norm == 0.0) {
-    return CONTROLLER_MAX_FACTOR;
-  }
-  const double factor = CONTROLLER_SAFETY / sqrt(norm);
-  return fmin(CONTROLLER_MAX_FACTOR, fmax(CONTROLLER_MIN_FACTOR, factor));
+/**
+ * The step cap: sigma * C / K_max at the step start under the explicit scheme,
+ * none (+infinity) under the implicit scheme.
+ */
+static double step_cap(const struct Integration *in) {
+  return in->implicit ? INFINITY : positivity_cap(in->k_start);
 }
 
 /**
- * @brief   The implicit adaptive driver
+ * @brief   Attempt one step under the segment's scheme (attempt_step(), implicit_attempt())
  *
- * The law evaluation at an accepted trial end starts the next step, so each
- * attempt costs one evaluation. A positivity rejection halves the step; an
- * error rejection scales it by the controller.
+ * @p k_seen is the largest K_max met in an explicit attempt, and 0 under the
+ * implicit scheme, whose positivity rejection then only halves the step.
  */
-static enum RateCause integrate_implicit(struct Integration *in) {
+static enum AttemptResult attempt(struct Integration *in, double tau, double step, int adaptive,
+                                  double *norm, double *min_weight, double *k_seen) {
+  if (in->implicit) {
+    *k_seen = 0.0;
+    return implicit_attempt(in, tau, step, adaptive, norm, min_weight);
+  }
+  return attempt_step(in, tau, step, adaptive, norm, min_weight, k_seen);
+}
+
+/**
+ * @brief   Take up the next step from the accepted state at @p tau
+ *
+ * The explicit scheme evaluates the laws there (begin_step()); the implicit
+ * scheme already evaluated them at the trial end it accepted, so it adopts
+ * those coefficients.
+ */
+static enum RateCause next_step_start(struct Integration *in, double tau, double step) {
+  if (in->implicit) {
+    swap_coefficients(&in->s); /* the trial end's coefficients start the next step */
+    adopt_start(in);
+    return RATE_CAUSE_NONE;
+  }
+  return begin_step(in, tau, step);
+}
+
+/**
+ * @brief   The adaptive driver: accept or reject each attempt and let the controller size the next
+ *
+ * The segment starts at min(1, cap(x0)), and the error control and the
+ * rejection rule size every step from there. An accepted step's next step is
+ * the step times step_factor(), never larger after a rejection; a positivity
+ * rejection takes the smaller of half the step and the cap at the largest K_max
+ * the attempt met; an error rejection scales it by step_factor().
+ */
+static enum RateCause integrate_adaptive(struct Integration *in) {
   double tau = 0.0;
   enum RateCause cause = begin_step(in, tau, 0.0);
   if (cause != RATE_CAUSE_NONE) {
     return cause;
   }
-  double step = implicit_first_step(in);
+  double step = fmin(1.0, step_cap(in));
 
   int64_t attempts = 0;
   int consecutive_rejections = 0;
   int after_rejection = 0;
   for (;;) {
+    const double cap = step_cap(in);
+    if (step >= cap) {
+      step = cap;
+      in->limit_entry = in->k_start_entry;
+      in->limit_flux = in->k_start_flux;
+    }
     int last;
-    cause = prepare_attempt(in, tau, INFINITY, &step, &attempts, &last);
+    cause = prepare_attempt(in, tau, cap, &step, &attempts, &last);
     if (cause != RATE_CAUSE_NONE) {
       return cause;
     }
 
     double norm;
     double min_weight;
-    const enum AttemptResult result = implicit_attempt(in, tau, step, 1, &norm, &min_weight);
+    double k_seen;
+    const enum AttemptResult result = attempt(in, tau, step, 1, &norm, &min_weight, &k_seen);
     if (result == ATTEMPT_FAILED) {
       return in->outcome->failure.cause;
     }
@@ -1925,15 +1762,17 @@ static enum RateCause integrate_implicit(struct Integration *in) {
         return RATE_CAUSE_NONE;
       }
       tau += step;
-      double factor = implicit_step_factor(norm);
+      double factor = step_factor(in, norm);
       if (after_rejection && factor > 1.0) {
         factor = 1.0;
       }
       step *= factor;
       after_rejection = 0;
       consecutive_rejections = 0;
-      swap_coefficients(&in->s); /* the trial end's coefficients start the next step */
-      adopt_start(in);
+      cause = next_step_start(in, tau, step);
+      if (cause != RATE_CAUSE_NONE) {
+        return cause;
+      }
       continue;
     }
 
@@ -1942,17 +1781,16 @@ static enum RateCause integrate_implicit(struct Integration *in) {
     if (cause != RATE_CAUSE_NONE) {
       return cause;
     }
-    step *= (result == ATTEMPT_REJECTED_POSITIVITY) ? 0.5 : implicit_step_factor(norm);
+    if (result == ATTEMPT_REJECTED_POSITIVITY) {
+      step = fmin(0.5 * step, positivity_cap(k_seen));
+    } else {
+      step *= step_factor(in, norm);
+    }
   }
 }
 
-/* ---------------------------------------------------------------------------
- * Fixed steps, under either scheme
- * ------------------------------------------------------------------------- */
-
 /** The fixed-step driver: n equal steps, controller off, positivity checks on. */
 static enum RateCause integrate_fixed(struct Integration *in) {
-  const int implicit = (in->settings->scheme == RATE_SCHEME_IMPLICIT);
   const int64_t steps = in->settings->fixed_steps;
   const double step = 1.0 / (double)steps;
   enum RateCause cause = begin_step(in, 0.0, step);
@@ -1968,9 +1806,7 @@ static enum RateCause integrate_fixed(struct Integration *in) {
     double norm;
     double min_weight;
     double k_seen;
-    const enum AttemptResult result =
-        implicit ? implicit_attempt(in, tau, step, 0, &norm, &min_weight)
-                 : attempt_step(in, tau, step, 0, &norm, &min_weight, &k_seen);
+    const enum AttemptResult result = attempt(in, tau, step, 0, &norm, &min_weight, &k_seen);
     if (result == ATTEMPT_FAILED) {
       return in->outcome->failure.cause;
     }
@@ -2028,6 +1864,33 @@ const char *rate_cause_name(enum RateCause cause) {
   return "unknown";
 }
 
+const char *rate_integrator_method_description(enum RateScheme scheme) {
+  static char description[2][640];
+  check_scheme(scheme);
+  const int implicit = (scheme == RATE_SCHEME_IMPLICIT);
+  char control[384];
+  snprintf(control, sizeof(control),
+           "controller factor %g err^(-1/%d) clamped to [%g, %g], no growth after a rejection; "
+           "error scale the row's largest total at the segment start, step start and trial end, "
+           "scale floor %g of the component's; landing stretch %g; minimum step 2^%d",
+           CONTROLLER_SAFETY, implicit ? 2 : 3, CONTROLLER_MIN_FACTOR, CONTROLLER_MAX_FACTOR,
+           SCALE_FLOOR, LANDING_STRETCH, ilogb(MIN_STEP));
+  char *text = description[implicit];
+  if (implicit) {
+    snprintf(text, sizeof(description[0]),
+             "Linearly implicit Patankar-Euler, coefficients frozen at the step start, solved per "
+             "galaxy block in subtraction-free (Grassmann-Taksar-Heyman) form; first step 1; "
+             "error estimate M^-1 M^-1 (dt/2) (F(x_n+1) - F(x_n)); %s",
+             control);
+  } else {
+    snprintf(text, sizeof(description[0]),
+             "SSPRK(4,3) explicit Runge-Kutta, embedded second-order weights (1/4, 1/4, 1/4, "
+             "1/4); positivity C = %g, sigma = %g; first step min(1, sigma C / K_max); %s",
+             SSP_COEFFICIENT, POSITIVITY_MARGIN, control);
+  }
+  return text;
+}
+
 enum RateCause rate_check_closure(const struct RateClosureInput *input,
                                   struct RateFailure *failure) {
   failure->cause = RATE_CAUSE_NONE;
@@ -2044,7 +1907,7 @@ enum RateCause rate_check_closure(const struct RateClosureInput *input,
     double start_magnitude = 0.0;
     int members = 0;
     for (int i = 0; i < input->num_entries; i++) {
-      if (input->entries[i].kind == RATE_ENTRY_OBSERVER || input->entries[i].total != t) {
+      if (input->entries[i].total != t) {
         continue;
       }
       start_sum += input->start_state[i];
@@ -2077,9 +1940,10 @@ enum RateCause rate_check_closure(const struct RateClosureInput *input,
 /**
  * @brief   The tracer bound at segment end (rate_integrator.h, Segment-end checks)
  *
- * For each tracer z of parent p, in entry order: z - p <= 8u (L + 2) N_acc
- * Theta_p, with Theta_p p's start content plus its accumulated inflow amounts.
- * The first failing tracer is named with its first source or slaved source in
+ * For each tracer z of parent p, in entry order, with e0 = max(0, z - p) at the
+ * segment start: z - p <= e0 + 8u (L + 2) N_acc (Theta_p + e0) at its end,
+ * Theta_p being p's start content plus its accumulated inflow amounts. The
+ * first failing tracer is named with its first source or slaved source in
  * canonical order, if it has one.
  */
 static enum RateCause check_tracer_bound(struct Integration *in, const double *start) {
@@ -2092,8 +1956,9 @@ static enum RateCause check_tracer_bound(struct Integration *in, const double *s
       continue;
     }
     const int p = c->entries[z].parent;
+    const double start_excess = fmax(0.0, start[z] - start[p]);
     const double throughput = start[p] + s->inflow_entry[p];
-    const double bound = CLOSURE_FACTOR * terms * throughput;
+    const double bound = start_excess + CLOSURE_FACTOR * terms * (throughput + start_excess);
     if (s->x[z] - s->x[p] <= bound) {
       continue;
     }
@@ -2122,16 +1987,25 @@ static int any_row_advances(const struct RateComponent *c) {
   return 0;
 }
 
-/** Copy the per-total external amounts to the caller's arrays, when given. */
-static void write_amounts(const struct RateComponent *c, const double *source, const double *sink,
-                          double *source_amounts, double *sink_amounts) {
+/**
+ * @brief   Copy the segment's amounts to the caller's arrays, when given
+ *
+ * @p in is NULL for a segment that took no step, whose amounts are all zero;
+ * otherwise the per-total external amounts and the declared fluxes' amounts
+ * come from its scratch.
+ */
+static void write_amounts(const struct RateComponent *c, const struct Integration *in,
+                          double *source_amounts, double *sink_amounts, double *flux_amounts) {
   for (int t = 0; t < c->num_totals; t++) {
     if (source_amounts != NULL) {
-      source_amounts[t] = (source != NULL) ? source[t] : 0.0;
+      source_amounts[t] = (in != NULL) ? in->s.source[t] : 0.0;
     }
     if (sink_amounts != NULL) {
-      sink_amounts[t] = (sink != NULL) ? sink[t] : 0.0;
+      sink_amounts[t] = (in != NULL) ? in->s.sink[t] : 0.0;
     }
+  }
+  for (int f = 0; f < c->num_fluxes && flux_amounts != NULL; f++) {
+    flux_amounts[f] = (in != NULL) ? in->s.flux_amount[f] : 0.0;
   }
 }
 
@@ -2140,7 +2014,7 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
                                       const struct RateIntegratorSettings *settings,
                                       void *workspace, size_t workspace_bytes, double *state,
                                       double *source_amounts, double *sink_amounts,
-                                      struct RateSegmentOutcome *outcome) {
+                                      double *flux_amounts, struct RateSegmentOutcome *outcome) {
   memset(outcome, 0, sizeof(*outcome));
   outcome->failure.cause = RATE_CAUSE_NONE;
   outcome->failure.entry = -1;
@@ -2149,7 +2023,13 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
   outcome->failure.total = -1;
   outcome->failure.detail = "";
 
-  const size_t required = rate_integrator_workspace_bytes(component, settings->scheme);
+  check_scheme(settings->scheme);
+  const int implicit = (settings->scheme == RATE_SCHEME_IMPLICIT);
+  const size_t move_capacity = tracer_move_capacity(component);
+  const size_t dense_capacity = implicit ? implicit_dense_capacity(component) : 0;
+  struct Scratch measured;
+  const size_t required =
+      layout_scratch(component, settings->scheme, move_capacity, dense_capacity, NULL, &measured);
   if (workspace_bytes < required || (required > 0 && workspace == NULL)) {
     FATAL_ERROR("Rate integrator workspace holds %zu bytes; the component needs %zu",
                 workspace_bytes, required);
@@ -2160,6 +2040,9 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
       .law = law,
       .settings = settings,
       .outcome = outcome,
+      .implicit = implicit,
+      .move_capacity = move_capacity,
+      .dense_capacity = dense_capacity,
       .k_start = 0.0,
       .k_start_entry = -1,
       .start_entry = -1,
@@ -2168,39 +2051,33 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
       .limit_entry = -1,
       .limit_flux = -1,
   };
-  layout_scratch(component, settings->scheme, workspace, &in.s);
+  layout_scratch(component, settings->scheme, move_capacity, dense_capacity, workspace, &in.s);
   outcome->max_terms_per_entry = build_flux_lists(&in);
-  if (settings->scheme == RATE_SCHEME_IMPLICIT) {
+  if (implicit) {
     outcome->max_terms_per_entry = implicit_prepare(&in, outcome->max_terms_per_entry);
   }
 
   if (component->num_entries == 0) {
-    write_amounts(component, NULL, NULL, source_amounts, sink_amounts);
+    write_amounts(component, NULL, source_amounts, sink_amounts, flux_amounts);
     return RATE_CAUSE_NONE;
   }
-  memcpy(in.s.x, state, (size_t)component->num_entries * sizeof(double));
-  memset(in.s.source_entry, 0, (size_t)component->num_entries * sizeof(double));
-  memset(in.s.sink_entry, 0, (size_t)component->num_entries * sizeof(double));
-  memset(in.s.inflow_entry, 0, (size_t)component->num_entries * sizeof(double));
+  const size_t n = (size_t)component->num_entries;
+  memcpy(in.s.x, state, n * sizeof(double));
+  memset(in.s.source_entry, 0, n * sizeof(double));
+  memset(in.s.sink_entry, 0, n * sizeof(double));
+  memset(in.s.inflow_entry, 0, n * sizeof(double));
+  memset(in.s.flux_amount, 0, (size_t)component->num_fluxes * sizeof(double));
+  sum_totals(&in, state, in.s.group_segment, in.s.total_segment);
 
   if (!any_row_advances(component)) {
-    /* No step and no law: the state stands, and the tracer bound (N_acc = 0, so the bound is
-     * zero) still holds every tracer to its parent. */
-    if (check_tracer_bound(&in, state) != RATE_CAUSE_NONE) {
-      return RATE_CAUSE_TRACER_BOUND;
-    }
-    write_amounts(component, NULL, NULL, source_amounts, sink_amounts);
+    /* No step and no law: the state stands. The tracer bound is not checked: with N_acc = 0
+     * each tracer's bound is its own start excess, which its unchanged state meets. */
+    write_amounts(component, NULL, source_amounts, sink_amounts, flux_amounts);
     return RATE_CAUSE_NONE;
   }
 
-  enum RateCause cause;
-  if (settings->fixed_steps > 0) {
-    cause = integrate_fixed(&in);
-  } else if (settings->scheme == RATE_SCHEME_IMPLICIT) {
-    cause = integrate_implicit(&in);
-  } else {
-    cause = integrate_adaptive(&in);
-  }
+  const enum RateCause cause =
+      (settings->fixed_steps > 0) ? integrate_fixed(&in) : integrate_adaptive(&in);
   if (cause != RATE_CAUSE_NONE) {
     return cause;
   }
@@ -2224,7 +2101,7 @@ enum RateCause rate_integrate_segment(const struct RateComponent *component,
     return RATE_CAUSE_TRACER_BOUND;
   }
 
-  memcpy(state, in.s.x, (size_t)component->num_entries * sizeof(double));
-  write_amounts(component, in.s.source, in.s.sink, source_amounts, sink_amounts);
+  memcpy(state, in.s.x, n * sizeof(double));
+  write_amounts(component, &in, source_amounts, sink_amounts, flux_amounts);
   return RATE_CAUSE_NONE;
 }

@@ -3,8 +3,10 @@
  * @brief   Manual cost driver: times hand-built stars through the rate integrator alone
  *
  * Not part of any test tier and not built by the Makefile: `python3
- * tests/manual/run_rate_battery.py --cost` compiles it against an explicit source list and runs
- * it. It measures what the integrator costs by itself, with no galaxies, modules, dispatch or I/O:
+ * tests/manual/run_rate_cost.py` compiles it against an explicit source list and runs it. It
+ * needs a built tree (the integrator includes generated headers, so `make` must have run); the
+ * script says so and stops when they are missing. It measures what the integrator costs by
+ * itself, with no galaxies, modules, dispatch or I/O:
  *
  *   - a star of N satellites around one central, two reservoirs per galaxy and the cross-record
  *     transfers of the unit tests' uniform star (satellite gas to the central's hot gas and to
@@ -17,8 +19,10 @@
  * REPEATS timed repeats. A repeat is as many back-to-back segments as it takes the integrator's
  * own time to reach MIN_REPEAT_SECONDS (counted by the discarded segment's duration), each
  * timed individually with CLOCK_MONOTONIC around the integrator call alone (the state is
- * restored outside the timed region), so a small star's repeat is not a clock-resolution
- * measurement. The figures per size are the accepted, rejected and law-evaluation counts of one
+ * restored outside the timed region). Each segment is therefore still measured alone, so the
+ * clock's resolution quantises every one of them: summing many segments in a repeat averages
+ * that error over the repeat rather than removing it, and a small star's time per evaluation
+ * carries it. The figures per size are the accepted, rejected and law-evaluation counts of one
  * segment (identical in every segment, which the driver checks), the workspace bytes per
  * galaxy, and the time per galaxy per law evaluation: the median over the repeats (the
  * statistic the bounds judge) and the minimum and maximum.
@@ -111,10 +115,10 @@ static struct Star build_star(int satellites) {
 
   star.delta[star.num_rows] = CENTRAL_DELTA;
   const int hot = star.num_entries++;
-  star.entries[hot] = (struct RateEntry){.row = 0, .total = 0, .parent = -1, .flux = -1};
+  star.entries[hot] = (struct RateEntry){.row = 0, .total = 0, .parent = -1};
   star.start[hot] = 0.08 * (double)satellites;
   const int cold = star.num_entries++;
-  star.entries[cold] = (struct RateEntry){.row = 0, .total = 0, .parent = -1, .flux = -1};
+  star.entries[cold] = (struct RateEntry){.row = 0, .total = 0, .parent = -1};
   star.start[cold] = 0.01 * (double)satellites;
   star.num_rows++;
   star.fluxes[star.num_fluxes] = (struct RateFlux){
@@ -125,10 +129,10 @@ static struct Star build_star(int satellites) {
     const int row = star.num_rows++;
     star.delta[row] = SATELLITE_DELTA;
     const int gas = star.num_entries++;
-    star.entries[gas] = (struct RateEntry){.row = row, .total = 0, .parent = -1, .flux = -1};
+    star.entries[gas] = (struct RateEntry){.row = row, .total = 0, .parent = -1};
     star.start[gas] = 0.6;
     const int stars = star.num_entries++;
-    star.entries[stars] = (struct RateEntry){.row = row, .total = 0, .parent = -1, .flux = -1};
+    star.entries[stars] = (struct RateEntry){.row = row, .total = 0, .parent = -1};
     star.start[stars] = 0.0;
     star.fluxes[star.num_fluxes] = (struct RateFlux){
         .kind = RATE_FLUX_INTERNAL, .from = gas, .to = hot, .global_index = 1, .master = -1};
@@ -193,7 +197,7 @@ static double run_segment(const struct Star *star, const struct RateIntegratorSe
   memcpy(state, star->start, (size_t)star->num_entries * sizeof(double));
   const double begin = now_seconds();
   const enum RateCause cause = rate_integrate_segment(
-      &component, &law, settings, workspace, workspace_bytes, state, &source, &sink, outcome);
+      &component, &law, settings, workspace, workspace_bytes, state, &source, &sink, NULL, outcome);
   const double end = now_seconds();
   return (cause == RATE_CAUSE_NONE) ? end - begin : -1.0;
 }

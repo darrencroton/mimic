@@ -36,6 +36,11 @@ module:
   supported_processing_modes:
     [process_by_galaxy, process_per_event, process_full_halo, process_snapshot]
 
+  # With TestFixtureCreatedContent above zero the records it creates hold fixture mass,
+  # which is a discrete change to this conserved total (a rate phase's ledger refuses an
+  # undeclared one). With the parameter absent or zero nothing changes.
+  changes_totals: [rate_fixture_mass]
+
   # ===========================================================================
   # Dependencies
   # ===========================================================================
@@ -44,12 +49,15 @@ module:
     # All properties used by this module
     properties:
       - TestDummyProperty
+      - RateFixtureHot
+      - RateFixtureCold
 
     # All parameters read by this module
     parameters:
       - TestFixtureDummyParameter
       - TestFixtureEnableLogging
       - TestFixtureCreateRecords  # optional: absent means 0 (no record creation)
+      - TestFixtureCreatedContent  # optional: absent means 0 (created records hold no content)
 
   # ===========================================================================
   # Tests

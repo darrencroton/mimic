@@ -28,8 +28,9 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
-#include "rate_integrator.h" /* enum RateScheme (values only; nothing here calls the integrator) */
-#include "horizontal/reader.h"            /* horizontal_reader_lookup, struct HorizontalReader */
+#include "rate_assembly.h"     /* RATE_MIN_REJECTIONS_PER_STEP */
+#include "rate_integrator.h"   /* enum RateScheme, RATE_DEFAULT_* (nothing here calls it) */
+#include "horizontal/reader.h" /* horizontal_reader_lookup, struct HorizontalReader */
 #include "vertical/forest_distribution.h" /* forest_distribution_scheme_from_string */
 #include "vertical/reader.h"              /* vertical_reader_lookup, struct VerticalReader */
 #include "types.h"
@@ -1390,7 +1391,8 @@ static void refuse_rate_integration_without_rate_phase(void) {
  * @brief   Read the rate phase's settings, modules.rate_integration
  *
  * The section is a mapping of six optional keys; a key it omits keeps its
- * default (constants.h), and an absent or null section keeps them all. It is
+ * default (the integrator's, rate_integrator.h, and check_purity false), and an
+ * absent or null section keeps them all. It is
  * refused, naming the key, when it has an unknown or non-scalar key or a value
  * out of range, and refused as a whole when no phase under modules.phases runs
  * process_rates, since nothing would read it (a null section too: see
@@ -1399,7 +1401,8 @@ static void refuse_rate_integration_without_rate_phase(void) {
  * - scheme: explicit (the default) or implicit, case-insensitive
  * - relative_tolerance, absolute_tolerance: finite numbers in (0, 1)
  * - max_steps_per_segment: an integer >= 1 (attempts per segment)
- * - max_rejections_per_step: an integer >= 1 (consecutive rejections of one step)
+ * - max_rejections_per_step: an integer >= RATE_MIN_REJECTIONS_PER_STEP, 20
+ *   (consecutive rejections of one step; rate_assembly.h says why)
  * - check_purity: true or false (default false), the purity probe of rate_assembly.h
  */
 static void parse_rate_integration_section(yaml_document_t *doc, yaml_node_t *section) {
@@ -1477,8 +1480,10 @@ static void parse_rate_integration_section(yaml_document_t *doc, yaml_node_t *se
   if (node != NULL) {
     const int value =
         get_strict_int_value(node, "modules.rate_integration.max_rejections_per_step");
-    if (value < 1) {
-      FATAL_ERROR("modules.rate_integration.max_rejections_per_step must be >= 1, got %d", value);
+    if (value < RATE_MIN_REJECTIONS_PER_STEP) {
+      FATAL_ERROR("modules.rate_integration.max_rejections_per_step must be >= %d, got "
+                  "%d. " RATE_MIN_REJECTIONS_PER_STEP_REASON,
+                  RATE_MIN_REJECTIONS_PER_STEP, value);
     }
     rate->max_rejections_per_step = value;
   }
@@ -1506,13 +1511,13 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
 
   /* Rate phase settings start from their defaults on every parse, so a second
    * parse in one process (every core unit test) does not inherit the first's. */
-  MimicConfig.RateIntegration = (struct MimicRateIntegration){
-      .scheme = RATE_INTEGRATION_DEFAULT_SCHEME,
-      .relative_tolerance = RATE_INTEGRATION_DEFAULT_RELATIVE_TOLERANCE,
-      .absolute_tolerance = RATE_INTEGRATION_DEFAULT_ABSOLUTE_TOLERANCE,
-      .max_steps_per_segment = RATE_INTEGRATION_DEFAULT_MAX_STEPS_PER_SEGMENT,
-      .max_rejections_per_step = RATE_INTEGRATION_DEFAULT_MAX_REJECTIONS_PER_STEP,
-      .check_purity = RATE_INTEGRATION_DEFAULT_CHECK_PURITY};
+  MimicConfig.RateIntegration =
+      (struct MimicRateIntegration){.scheme = RATE_SCHEME_EXPLICIT,
+                                    .relative_tolerance = RATE_DEFAULT_RELATIVE_TOLERANCE,
+                                    .absolute_tolerance = RATE_DEFAULT_ABSOLUTE_TOLERANCE,
+                                    .max_steps_per_segment = RATE_DEFAULT_MAX_STEPS_PER_SEGMENT,
+                                    .max_rejections_per_step = RATE_DEFAULT_MAX_REJECTIONS_PER_STEP,
+                                    .check_purity = 0}; /* no purity probe */
 
   /* Initialize phase configurations to NULL/0 */
   MimicConfig.pre_timestep = NULL;

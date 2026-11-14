@@ -655,9 +655,17 @@ def _first_field(**changes) -> list:
 #: Fragments of the error each refusal names (the cause, not a path-prefix message).
 WRONG_DIGEST = "source_md5 is not its build digest"
 NO_DIGEST = "has no known build digest"
+NO_KEY = "has no source_md5"
 CONTENT = "content differs beyond source_md5"
 
 _NO_KEY = {"binary_record_size": 8, "fields": SCHEMA_FIELDS}
+
+#: ``_schema("bbbb")`` with its keys, and the keys of its first field, in another order.
+_REORDERED = {
+    "fields": [dict(reversed(SCHEMA_FIELDS[0].items())), SCHEMA_FIELDS[1]],
+    "binary_record_size": 8,
+    "source_md5": "bbbb",
+}
 
 #: (case, baseline schema, candidate schema, baseline digest, candidate digest, problem): the
 #: digests are given explicitly ("unknown" is a side with no digest, ``OutputRun.source_md5`` None)
@@ -667,6 +675,14 @@ SCHEMA_PROVENANCE_CASES = [
         "source_md5 only, each its own digest",
         _schema("aaaa"),
         _schema("bbbb"),
+        "aaaa",
+        "bbbb",
+        None,
+    ),
+    (
+        "source_md5 only, keys in another order, each its own digest",
+        _schema("aaaa"),
+        _REORDERED,
         "aaaa",
         "bbbb",
         None,
@@ -690,6 +706,7 @@ SCHEMA_PROVENANCE_CASES = [
     ("baseline digest unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "bbbb", NO_DIGEST),
     ("candidate digest unknown", _schema("aaaa"), _schema("bbbb"), "aaaa", "unknown", NO_DIGEST),
     ("both digests unknown", _schema("aaaa"), _schema("bbbb"), "unknown", "unknown", NO_DIGEST),
+    ("candidate digest empty", _schema("aaaa"), _schema(""), "aaaa", "", NO_DIGEST),
     (
         "no source_md5 key, formatting differs, both digests unknown",
         json.dumps(_NO_KEY, indent=2),
@@ -704,7 +721,7 @@ SCHEMA_PROVENANCE_CASES = [
         _NO_KEY,
         "aaaa",
         "bbbb",
-        WRONG_DIGEST,
+        NO_KEY,
     ),
     ("a malformed side", _schema("aaaa"), '{"fields": [', "aaaa", "bbbb", CONTENT),
     ("a non-object side", _schema("aaaa"), "[1, 2]", "aaaa", "bbbb", CONTENT),
@@ -794,8 +811,8 @@ SCHEMA_PROVENANCE_CASES = [
 def test_a_schema_differing_only_in_its_build_digest_is_provenance_not_a_difference():
     """With no ``metadata_delta`` hook, a differing ``output_schema.json`` is accepted under one
     fixed label only when it differs in ``source_md5`` alone and each side's value is its own
-    build digest; any other difference, a wrong digest or an unknown digest is an error that
-    names its cause."""
+    build digest (whatever the order of the schema's keys); any other difference, a wrong,
+    missing or unknown digest is an error that names its cause."""
     with tempfile.TemporaryDirectory() as tmp:
         scratch = Path(tmp)
         for number, (case, left, right, digest_left, digest_right, problem) in enumerate(
