@@ -736,9 +736,9 @@ def _noop_errors(transfer: Dict[str, Any], label: str) -> List[str]:
     """Return the refusal of an internal transfer that moves nothing.
 
     An internal transfer whose from and to are one reservoir, into the same record
-    (to_record self, the default), changes no state, yet its coefficient would still
-    lower the positivity cap and feed any observer. With to_record: central the same
-    pair is a real move between two records and stays legal.
+    (to_record self, the default), moves nothing; its coefficient is still evaluated and
+    checked. With to_record: central the same pair is a real move between two records and
+    stays legal.
     """
     source = transfer.get("from")
     if (
@@ -748,9 +748,8 @@ def _noop_errors(transfer: Dict[str, Any], label: str) -> List[str]:
         and transfer.get("to_record", DEFAULT_TRANSFER_RECORD) == DEFAULT_TRANSFER_RECORD
     ):
         return [
-            f"{label} moves '{source}' into itself on the same record; it changes nothing but "
-            "would still lower the positivity cap and feed any observer (declare to_record: "
-            "central to move it to the central's reservoir)"
+            f"{label} moves '{source}' into itself on the same record; it moves nothing (declare "
+            "to_record: central to move it to the central's reservoir)"
         ]
     return []
 

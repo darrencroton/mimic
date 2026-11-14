@@ -157,7 +157,8 @@ static bool end_is(int index, enum ReservoirKind kind) {
  * @brief   The refusal of a transfer's ends against the reservoir table, or NULL when they hold
  *
  * Writes the reason into @p buffer. An internal transfer runs between two
- * reservoirs of one total; a sink leaves a reservoir for outside and has no
+ * reservoirs of one total and is not a reservoir into itself on the same
+ * record, which moves nothing; a sink leaves a reservoir for outside and has no
  * recipient record; a source or slaved source enters a reservoir or a tracer
  * from outside.
  */
@@ -186,6 +187,13 @@ static const char *transfer_end_refusal(const struct RateTransfer *t, char *buff
                "within one total",
                from, total_name(table_entry(t->from)->total), to,
                total_name(table_entry(t->to)->total));
+      return buffer;
+    }
+    if (t->from == t->to && t->to_record == RATE_TRANSFER_TO_SELF) {
+      snprintf(buffer, size,
+               "runs from %s into itself on the same record and moves nothing; with the central "
+               "as recipient it would be a real move",
+               from);
       return buffer;
     }
     return NULL;

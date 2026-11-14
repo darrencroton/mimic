@@ -134,6 +134,7 @@ from framework.battery import (  # noqa: E402
 from framework.fs import remove_tree  # noqa: E402
 from framework.rate_fixture import (  # noqa: E402
     POSITIVITY_CAP,
+    STATISTICS,
     STIFF_FACTOR,
     load_rate_fixture,
     read_step_extremes,
@@ -169,7 +170,6 @@ FIXTURE_FIELDS = (
     "RateFixtureStarsTracer",
     "RateFixtureFormed",
 )
-STATISTICS = "RunProperties/RateIntegration"
 ENABLED_MODULES = "RunProperties/EnabledModules"
 
 LEGS = ("cross-driver", "task-chunk", "permutation", "record-creation")

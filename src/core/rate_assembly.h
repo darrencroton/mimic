@@ -147,22 +147,6 @@ struct FoFWorkspace; /* fof_workspace.h */
 /** The startup plan of the rate phase (opaque; rate_assembly_plan_build()). */
 struct RateAssemblyPlan;
 
-/**
- * The smallest max_rejections_per_step the run file and the plan accept. Every
- * segment first tries the whole segment as one step, so a segment that needs a
- * small step begins with consecutive rejections, each shrinking the step by a
- * factor between 0.2 and 0.9; twenty at the fastest shrink take the whole
- * segment down to the minimum step (0.2^20 < 2^-46), so a smaller budget could
- * fail a segment before its step is small enough to be accepted.
- */
-#define RATE_MIN_REJECTIONS_PER_STEP 20
-
-/** Why the minimum holds, as the refusals of a smaller value say it */
-#define RATE_MIN_REJECTIONS_PER_STEP_REASON                                                        \
-  "A segment first tries the whole segment as one step and reaches a small step through "          \
-  "consecutive rejections, each shrinking the step by a factor between 0.2 and 0.9; twenty at "    \
-  "the fastest shrink take it from the whole segment to the minimum step, 2^-46"
-
 /** Lowest and highest octave of the K_max histogram: bin [2^k, 2^(k+1)) for k in this range */
 #define RATE_STATS_K_MAX_MIN_EXPONENT (-64)
 #define RATE_STATS_K_MAX_MAX_EXPONENT 63

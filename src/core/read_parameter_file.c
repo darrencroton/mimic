@@ -28,8 +28,7 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
-#include "rate_assembly.h"     /* RATE_MIN_REJECTIONS_PER_STEP */
-#include "rate_integrator.h"   /* enum RateScheme, RATE_DEFAULT_* (nothing here calls it) */
+#include "rate_integrator.h"   /* enum RateScheme, RATE_DEFAULT_*, RATE_MIN_REJECTIONS_PER_STEP */
 #include "horizontal/reader.h" /* horizontal_reader_lookup, struct HorizontalReader */
 #include "vertical/forest_distribution.h" /* forest_distribution_scheme_from_string */
 #include "vertical/reader.h"              /* vertical_reader_lookup, struct VerticalReader */
@@ -1402,7 +1401,7 @@ static void refuse_rate_integration_without_rate_phase(void) {
  * - relative_tolerance, absolute_tolerance: finite numbers in (0, 1)
  * - max_steps_per_segment: an integer >= 1 (attempts per segment)
  * - max_rejections_per_step: an integer >= RATE_MIN_REJECTIONS_PER_STEP, 20
- *   (consecutive rejections of one step; rate_assembly.h says why)
+ *   (consecutive rejections of one step; rate_integrator.h says why)
  * - check_purity: true or false (default false), the purity probe of rate_assembly.h
  */
 static void parse_rate_integration_section(yaml_document_t *doc, yaml_node_t *section) {

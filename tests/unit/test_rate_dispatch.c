@@ -490,6 +490,11 @@ static const struct RateTransfer wrong_kind_transfers[] = {
     TRANSFER("leak", 0, 140, RATE_TRANSFER_INTERNAL, RESERVOIR_INDEX_RateFixtureHotTracer,
              RESERVOIR_INDEX_RateFixtureCold, SELF, -1, NULL),
 };
+/* An internal transfer from a reservoir into itself on the same record: it moves nothing. */
+static const struct RateTransfer self_move_transfers[] = {
+    TRANSFER("spin", 0, 175, RATE_TRANSFER_INTERNAL, RESERVOIR_INDEX_RateFixtureCold,
+             RESERVOIR_INDEX_RateFixtureCold, SELF, -1, NULL),
+};
 static const struct RateTransfer master_transfers[] = {
     TRANSFER("form", 0, 150, RATE_TRANSFER_INTERNAL, RESERVOIR_INDEX_RateFixtureCold,
              RESERVOIR_INDEX_RateFixtureStars, SELF, -1, NULL),
@@ -533,6 +538,8 @@ static struct Module create_probe =
     RATE_MODULE("create_probe", create_rates, misuse_transfers, false);
 static struct Module wrong_kind_probe =
     RATE_MODULE("wrong_kind_probe", idle_rates, wrong_kind_transfers, false);
+static struct Module self_move_probe =
+    RATE_MODULE("self_move_probe", idle_rates, self_move_transfers, false);
 static struct Module master_probe =
     RATE_MODULE("master_probe", idle_rates, master_transfers, false);
 static struct Module slaved_probe =
@@ -703,35 +710,17 @@ static void ensure_probes_registered(void) {
   static bool registered = false;
   ensure_modules_registered();
   if (!registered) {
-    struct Module *probes[] = {&count_probe,
-                               &central_reader,
-                               &nan_probe,
-                               &emit_probe,
-                               &create_probe,
-                               &wrong_kind_probe,
-                               &master_probe,
-                               &slaved_probe,
-                               &cycle_probe,
-                               &context_saver,
-                               &retire_probe,
-                               &fof_control,
-                               &nan_central_probe,
-                               &observer_probe,
-                               &impure_probe,
-                               &scratch_writer_probe,
-                               &fail_on_satellite_probe,
-                               &ledger_producer,
-                               &ledger_consumer,
-                               &ledger_other,
-                               &ledger_galaxy,
-                               &ledger_galaxy_declarer,
-                               &stale_declarer,
-                               &clock_probe,
-                               &central_feed_probe,
-                               &tracer_spike_probe,
-                               &twice_observer_probe,
-                               &retire_undeclared,
-                               &ledger_shuffler};
+    struct Module *probes[] = {
+        &count_probe,          &central_reader,         &nan_probe,
+        &emit_probe,           &create_probe,           &wrong_kind_probe,
+        &self_move_probe,      &master_probe,           &slaved_probe,
+        &cycle_probe,          &context_saver,          &retire_probe,
+        &fof_control,          &nan_central_probe,      &observer_probe,
+        &impure_probe,         &scratch_writer_probe,   &fail_on_satellite_probe,
+        &ledger_producer,      &ledger_consumer,        &ledger_other,
+        &ledger_galaxy,        &ledger_galaxy_declarer, &stale_declarer,
+        &clock_probe,          &central_feed_probe,     &tracer_spike_probe,
+        &twice_observer_probe, &retire_undeclared,      &ledger_shuffler};
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
       module_registry_add(probes[i]);
     }
@@ -868,6 +857,9 @@ static void config_master_missing(void) {
   test_phase_add(RATE_PHASE, "slaved_probe", PROCESSING_MODE_RATES);
 }
 static void config_cycle(void) { test_phase_add(RATE_PHASE, "cycle_probe", PROCESSING_MODE_RATES); }
+static void config_self_move(void) {
+  test_phase_add(RATE_PHASE, "self_move_probe", PROCESSING_MODE_RATES);
+}
 static void config_wrong_kind(void) {
   test_phase_add(RATE_PHASE, "wrong_kind_probe", PROCESSING_MODE_RATES);
 }
@@ -951,6 +943,9 @@ int test_rate_phase_startup_rules(void) {
       {"wrong end kind", config_wrong_kind, "Configuration error in phase '" RATE_PHASE "'",
        "Module 'wrong_kind_probe' transfer 'leak' (internal) runs from 'RateFixtureHotTracer' (a "
        "tracer) to 'RateFixtureCold' (a reservoir)"},
+      {"transfer into itself", config_self_move, "Configuration error in phase '" RATE_PHASE "'",
+       "Module 'self_move_probe' transfer 'spin' (internal) runs from 'RateFixtureCold' (a "
+       "reservoir) into itself on the same record and moves nothing"},
       {"tolerance out of range", config_bad_tolerance,
        "Configuration error in phase '" RATE_PHASE "'", "tolerances (relative 0, absolute"},
       {"check_purity out of range", config_bad_purity,
@@ -2396,25 +2391,32 @@ static double active_mass_magnitude(void) {
  *
  * - "inf_undeclared": ledger_other makes the central's Cold +Inf, declaring nothing
  * - "inf_declared": ledger_producer does, and its subscribed consumer declares the total
+ * - "inf_entering": the workspace starts with an infinite Stars on row 1 and ledger_other, in a
+ *   phase that runs before the rate phase (which would refuse the value as a segment's start
+ *   state), changes nothing
  * - "rearrange": ledger_shuffler moves 0.75 of the central's Cold 2 to row 1 once
  * - "rounding": ledger_shuffler moves SHUFFLE_AMOUNT from a central Cold of 1 to an empty
  *   row 1, SHUFFLE_COUNT times
  * - "relative": ledger_other adds 1e-9 of the mass total's magnitude, declaring nothing
  * - "retire": retire_undeclared retires row 2 while it holds Cold
  *
- * The discrete phase runs after the rate phase, in one substep. count_probe's
- * coefficients are zero (no feed, no drain), so the rate phase leaves every
- * row exactly as set here and the discrete unit starts from it.
+ * The discrete phase runs after the rate phase (before it for "inf_entering"), in one
+ * substep. count_probe's coefficients are zero (no feed, no drain), so the rate phase
+ * leaves every row exactly as set here and the discrete unit starts from it.
  */
 static void ledger_case_body(const char *arg) {
   static const int types[3] = {0, 1, 2};
   static const double cold[3] = {2.0, 0.5, 1.0};
-  const bool by_other = strcmp(arg, "inf_undeclared") == 0 || strcmp(arg, "relative") == 0;
+  const bool by_other = strcmp(arg, "inf_undeclared") == 0 || strcmp(arg, "relative") == 0 ||
+                        strcmp(arg, "inf_entering") == 0;
   ensure_probes_registered();
   reset_rate_config();
   reset_probes();
   drain_rate = 0.0;
-  test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  const bool discrete_first = strcmp(arg, "inf_entering") == 0;
+  if (!discrete_first) {
+    test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  }
   if (by_other) {
     test_phase_add("events", "ledger_other", PROCESSING_MODE_FULL_HALO);
   } else if (strcmp(arg, "inf_declared") == 0) {
@@ -2425,6 +2427,9 @@ static void ledger_case_body(const char *arg) {
   } else {
     test_phase_add("events", "ledger_shuffler", PROCESSING_MODE_FULL_HALO);
   }
+  if (discrete_first) {
+    test_phase_add(RATE_PHASE, "count_probe", PROCESSING_MODE_RATES);
+  }
   if (module_system_init() != 0) {
     exit(2);
   }
@@ -2433,6 +2438,8 @@ static void ledger_case_body(const char *arg) {
     other_adds = INFINITY;
   } else if (strcmp(arg, "inf_declared") == 0) {
     producer_adds = INFINITY;
+  } else if (strcmp(arg, "inf_entering") == 0) {
+    workspace.halos[1].galaxy->RateFixtureStars = INFINITY;
   } else if (strcmp(arg, "relative") == 0) {
     other_adds = 1.0e-9 * active_mass_magnitude();
   } else if (strcmp(arg, "rearrange") == 0) {
@@ -2451,7 +2458,8 @@ static void ledger_case_body(const char *arg) {
 
 /**
  * @test    test_ledger_refuses_a_non_finite_total
- * @brief   A total made infinite is fatal in the unit that made it, declared or not
+ * @brief   A total made infinite is fatal in the unit that made it, declared or not; one
+ *          that enters the phase infinite is fatal too, reported as having entered
  *
  * Without the check an infinite after-sum gives an infinite tolerance and the
  * unit passes; a declared change is merely counted.
@@ -2468,6 +2476,20 @@ int test_ledger_refuses_a_non_finite_total(void) {
                                  "'ledger_producer'",
                                  "no changes_totals declaration covers"),
                     1, "a declared change to +Inf is fatal all the same");
+
+  /* A total that is already infinite when the phase's first unit starts is not that unit's
+   * doing: the message says it entered, not that the unit left it so. */
+  char message[4096];
+  TEST_ASSERT_EQUAL(
+      expect_fatal_capture("inf_entering", ledger_case_body,
+                           "Conserved total 'rate_fixture_mass' entered module 'ledger_other' "
+                           "(process_full_halo, with the per-event modules its events trigger) "
+                           "in phase 'events' not finite",
+                           "left infinite or not a number before this phase", message,
+                           sizeof(message)),
+      1, "a total infinite before the first unit is fatal, naming the unit and the total");
+  TEST_ASSERT(strstr(message, "not finite after") == NULL,
+              "a total that entered the unit infinite is not blamed on the unit as left so");
   return TEST_PASS;
 }
 

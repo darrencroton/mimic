@@ -118,3 +118,87 @@ Nothing failed. In full:
 - **Cost driver and `python3`.** The literal `python3 tests/manual/run_rate_battery.py --cost` fails with an ImportError for `h5py` under a Homebrew `python3` without the project's virtual environment; it runs with `mimic_venv/bin` first on `PATH`, as `make tests-rate` does through `$(PYTHON)`. The module's top-level imports predate this slice.
 - **Scope of the cost figures.** One star shape, constant coefficients, default tolerances; one fixture pipeline on one dataset, one machine. They bound the integrator's own scaling and show the fixture's cost; they predict no production model's.
 - **Limits of the plan, unchanged** ([Outcome and Limits](MIMIC-COUPLED-RATE-IMPLEMENTATION-PLAN.md#outcome-and-limits)): no model package gains a rate module and no production output changes by a byte; no located events; no auxiliary state in rate phases; one rate phase per run file; bit-identity per binary; cross-driver identity for tree rows only; conservation to a stated rounding tolerance; the two schemes' tolerances are not comparable.
+
+## Addendum, 2026-11-14: after the post-implementation review
+
+The record above is the evidence of commit `2d34a8e2` and is left as it was written. This addendum records what changed after it, from the post-implementation review ([`MIMIC-COUPLED-RATE-REVIEW.md`](MIMIC-COUPLED-RATE-REVIEW.md)), whose accepted findings were implemented on 2026-11-14 in `278a5b6e` (code) and `912a9673` (documents).
+
+### 1. Gate item 7 is closed
+
+The record says gate item 7 (the documents of record) is not met. Slice 13 closed it in commits `8ab9c628`, `0f803681` and `81d6e1ca`, and the documents were brought up to the as-built mode again in `912a9673`.
+
+### 2. Zero-value warning counts, completed
+
+The caveat above gives the `test_zero_values` field counts for two of the five runs. For all five: sage16 3, sage26 25, halos-only 3, hod 4, sham 3. The same counts were seen again in the validation of 2026-11-14 below.
+
+### 3. What the review changed
+
+The review found one blocking defect and a set of weaknesses; all accepted findings and simplifications were implemented in `278a5b6e`. Several statements above are therefore historical and no longer describe the mode:
+
+- **First-step rule and its owner amendment.** The record says the first step comes from Design 3.5's estimate, with zero-total entries left out. As built now: the Hairer-Wanner starting rule is removed, and every segment starts by trying the whole segment, min(1, positivity cap) under the explicit scheme and 1 under the implicit scheme.
+- **Failure-file copy.** The record says each law evaluation copies rows x transfers coefficients for the failure file. As built now: the copy is removed.
+- **Observers.** The record treats observers as integrator state. As built now: they are write-back amounts.
+- **Tracer bound.** As built now: it limits the growth of a tracer's excess over its parent.
+- **Implicit error estimate.** As built now: it is filtered twice.
+- **Cost driver.** The record runs `run_rate_battery.py --cost`. As built now: the cost driver is `tests/manual/run_rate_cost.py`.
+
+### 4. The cost reading is corrected
+
+The record attributes the fixture pipeline's cost (8 to 10 times the empty pipeline under the explicit scheme) to the fixture's stiffness. The review measured the same real mini-Millennium fixture run (horizontal driver, explicit scheme, default parameters): the largest K_max of any segment is 0.0045 against a positivity cap of 1.8, so the fixture is not stiff, and the removed starting rule accounted for most of the cost.
+
+| Quantity | Starting rule as recorded | Whole segment tried first |
+|---|---|---|
+| Law evaluations | 22,103,861 | 5,497,108 |
+| Accepted steps | 5,206,135 | 1,370,503 |
+| Rejected steps | 176 | 5,032 |
+| Segments | 1,365,471 | 1,365,471 |
+| Wall time | about 4.1 s | about 1.7 s |
+
+The empty pipeline takes 0.49 s in the record's own table. These wall times are single-machine figures taken during the review, not a re-run of the record's five-repeat protocol, and no production figure is claimed.
+
+### 5. The regime of the end-to-end runs
+
+Every real-dispatch run the record relies on sat at a largest K_max of about 0.0045, so the positivity cap, the retry rule and repeated rejections were never exercised through dispatch. A stiff case now runs through dispatch: the fixture's rate coefficients scaled by 1e3, as an integration test and as a cross-driver case of the battery that requires rejected steps and a largest K_max above 1.8 in both drivers. The battery measured 2,729,419 rejections and a largest K_max of 4.496, identical in both drivers.
+
+### 6. What the permutation leg can detect
+
+At the record's commit the permutation leg (24 orders on the `forest_blocks` fixture) could not detect a missing canonical order. With the ordering deliberately broken (modules and transfers listed in run-file order, and that order handed to the integrator as its sort key) it still passed 46 of 46 cases, because the fixture has 9 to 13 rows per snapshot. On the real data the same mutant changed 35 to 200 rows per field out of 204,974. The battery now repeats the real-data horizontal run in two further module orders; under the same mutant that comparison fails on 451 and 459 rows of 204,976. At the as-built head, forward and reversed module order are byte-identical over all 204,976 rows.
+
+### 7. The record-creation leg
+
+The leg could not see created rows' content (137 created rows, none with fixture content). `test_fixture` now gives created records reservoir content through `TestFixtureCreatedContent`, and the leg asserts that created rows with non-zero fixture state exist (137 of 137 in the reference run).
+
+### 8. Two qualifications of the cost section
+
+- The two earlier cost-driver runs the record cites (median ratios 1.088 and 1.121 explicit, 1.029 and 1.040 implicit) have no log.
+- The workspace bound is computed from `rate_integrator_workspace_bytes()`, so it checks that formula's linearity, not a measured allocation, and the dispatch's own per-row scratch is not bounded by it.
+
+### 9. Validation at the as-built head
+
+Run on 2026-11-14 at commit `912a9673`; every command exited 0 except the sage26 run, as noted. `MIMIC_BASELINE_RTOL` was unset.
+
+| Command | Result |
+|---|---|
+| `make tests summary`, sage16 on mini-millennium | unit 551 passed, integration 211, scientific 114, 0 failed |
+| `make tests summary`, halos-only on mini-millennium | unit 435, integration 186, scientific 46 passed |
+| `make tests summary`, hod on mini-millennium | unit 460, integration 185, scientific 46 passed |
+| `make tests summary`, sham on micro-uchuu-ascii-horizontal | unit 427, integration 174, scientific 56 passed |
+| `make tests summary`, sage26 on mini-millennium | integration 226 and scientific 273 passed; **unit 695 passed, 1 failed** (see below) |
+| halos-only on mini-millennium-horizontal, `tests-integration` | 188 passed |
+| `generate` and `check-generated` | 50 of 50 distinct pairs |
+| `make tests-reference-identity REFERENCE_COMMIT=39a8d28e` | all 8 legs, 0 galaxy differences, the provenance label the only schema difference |
+| `make tests-distributed` | 264 checks |
+| `make tests-snapshot-global` | 115 cases |
+| `make tests-snapshot-global-identity` | 12 passed |
+| `make tests-horizontal-v3` | 4 C and 3 Python tests |
+| `make tests-rate` | 541 checks (cross-driver 6 cases, task-chunk 10, permutation 46, record-creation 5) |
+| `make tests-rate RATE_BATTERY_ARGS=--offline` | 479 checks |
+| `make tests-converter` | 1,211 passed |
+| `make tests-bench` | 269 passed |
+| `tests/manual/run_rate_cost.py` | every bound held: time ratios 1.044 (explicit) and 1.011 (implicit) against 1.5; workspace ratios 0.9997 and 0.9996 |
+
+The one failure is a test-capacity failure, not a defect of the mode: `tests/unit/test_rate_dispatch.c` aborted with "Maximum number of modules (64) exceeded", because sage26's test build plus the test's 29 probe modules exceed the registry's cap. The follow-up commit raises the registry's cap from 64 to 128, and the sage26 unit tier re-run on that tree passes: `make MODEL=sage26 SIMULATION=mini-millennium tests-unit`, passed=729 failed=0 skipped=0 n/a=27 (the 34 cases of `test_rate_dispatch` now counted).
+
+### 10. Independent review of the implementation
+
+The range `81d6e1ca..912a9673` was reviewed by two external reviewers (Codex gpt-6.1-sol and Claude Opus 5.5, both read-only, high effort). Neither reported a P0 or P1 finding. The findings (a startup refusal missing for a transfer into itself, a false stated reason for that refusal, three overstatements in the guides, an attribution gap in the discrete ledger's non-finite check, and smaller items) were fixed in a follow-up commit.

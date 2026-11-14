@@ -40,13 +40,13 @@
 #define POSITIVITY_MARGIN 0.9
 /* Step controller: safety factor and clamp of the step factor; landing stretch. */
 #define CONTROLLER_SAFETY 0.9
-#define CONTROLLER_MIN_FACTOR 0.2
+#define CONTROLLER_MIN_FACTOR 0.2 /* with MIN_STEP, sets RATE_MIN_REJECTIONS_PER_STEP */
 #define CONTROLLER_MAX_FACTOR 5.0
 #define LANDING_STRETCH 1.1
 /* Error weight: the scale S is at least this fraction of the component's total. */
 #define SCALE_FLOOR 1e-12
 /* The smallest step, in tau. */
-#define MIN_STEP 0x1p-46
+#define MIN_STEP 0x1p-46 /* with CONTROLLER_MIN_FACTOR, sets RATE_MIN_REJECTIONS_PER_STEP */
 /* Segment closure and tracer bound: 8u with u = 2^-53. */
 #define CLOSURE_FACTOR 0x1p-50
 

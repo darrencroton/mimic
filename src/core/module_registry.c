@@ -2087,7 +2087,10 @@ static const char *describe_discrete_unit(const struct PhasePlan *plan, int unit
  * Fatal on a total left not finite, whatever the declarations, and on an
  * undeclared change; counts a declared one in the run's statistics. A unit's
  * before-sums are the previous unit's after-sums, which this check let pass, so
- * they are finite.
+ * they are finite, except for the phase's first unit, whose before-sums are the
+ * workspace as the phase finds it (a value left by initialisation, by a phase
+ * outside the ledger or by a post_snapshot module): a total not finite there is
+ * reported as having entered the unit, not as left so by it.
  */
 static void check_discrete_unit(const struct PhasePlan *plan, int unit,
                                 const struct TotalSums *before, const struct TotalSums *after,
@@ -2097,6 +2100,23 @@ static void check_discrete_unit(const struct PhasePlan *plan, int unit,
   const double relative_floor = 0x1p-40; /* a conservative unit's own arithmetic stays below it */
   discrete_ledger_units++;
   for (int t = 0; t < num_totals; t++) {
+    if (!isfinite(before->sum[t]) || !isfinite(before->magnitude[t])) {
+      const char *total = mimic_reservoir_total_names()[t];
+      const long long central_id = (ctx->central_index >= 0 && ctx->central_index < ws->count)
+                                       ? ws->halos[ctx->central_index].UniqueGalaxyID
+                                       : -1;
+      char unit_name[MAX_STRING_LEN + 640];
+      describe_discrete_unit(plan, unit, unit_name, sizeof(unit_name));
+      ERROR_LOG("Discrete-phase ledger: conserved total '%s' entered phase '%s' not finite (sum "
+                "%.17g, sum of magnitudes %.17g) at snapshot %d, substep %d, in the FoF group of "
+                "central UniqueGalaxyID %lld",
+                total, plan->phase_name, before->sum[t], before->magnitude[t], ctx->snapshot_number,
+                ctx->substep_number, central_id);
+      FATAL_ERROR("Conserved total '%s' entered %s in phase '%s' not finite: a reservoir or "
+                  "tracer of the total was left infinite or not a number before this phase, by "
+                  "initialisation, a phase outside the ledger or a post_snapshot module",
+                  total, unit_name, plan->phase_name);
+    }
     const bool finite = isfinite(after->sum[t]) && isfinite(after->magnitude[t]);
     const int64_t entries =
         before->entries[t] > after->entries[t] ? before->entries[t] : after->entries[t];

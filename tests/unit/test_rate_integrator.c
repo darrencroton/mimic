@@ -1593,7 +1593,8 @@ static int test_start_controller_and_landing(void) {
  * Near-empty and draining states
  * ------------------------------------------------------------------------- */
 
-/* The near-empty starts: exactly empty, then from the smallest normal scale up. */
+/* The near-empty starts: exactly empty, then far below any weight's floor (1e-300, 1e-20) up to
+ * 1e-8. */
 static const double NEAR_EMPTY_STARTS[] = {0.0, 1e-300, 1e-20, 1e-14, 1e-8};
 #define NUM_NEAR_EMPTY_STARTS ((int)(sizeof(NEAR_EMPTY_STARTS) / sizeof(NEAR_EMPTY_STARTS[0])))
 
@@ -1692,7 +1693,7 @@ static int test_near_empty_start(void) {
         TEST_ASSERT(run_segment(&system, NULL, &settings, &run) == 0, "workspace too small");
         const double exact = (problem == 0) ? fed_reservoir_exact(x0) : fed_central_exact(x0);
         const double relative = fabs(system.state[0] - exact) / exact;
-        const double bound = implicit ? 1e-2 : 10.0 * 1e-8 / exact;
+        const double bound = implicit ? 1e-2 : 10.0 * 1e-8;
         const double closure = closure_ratio(&system, start, &run);
         const int ok = run.cause == RATE_CAUSE_NONE && relative <= bound && closure <= 1.0;
         printf("\n  %s (%c) x0=%-7.0e %-14s accepted=%-4lld rejected=%-3lld relative error=%.3e "

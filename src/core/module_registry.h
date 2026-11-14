@@ -37,8 +37,12 @@
 
 struct FoFWorkspace; /* fof_workspace.h */
 
-/** Maximum number of registered modules; the generated module_init.c asserts against it. */
-#define MAX_MODULES 64
+/**
+ * Maximum number of registered modules; the generated module_init.c asserts against it. The
+ * headroom is for a model package's modules, the test-build fixtures, and the probe modules a
+ * unit test registers on top of both.
+ */
+#define MAX_MODULES 128
 
 /**
  * @brief   Phase module configuration entry
@@ -300,9 +304,13 @@ size_t module_rate_scratch_bytes(void);
  * per-event consumers its events trigger, the commit of the records it created
  * and the safety dispatch after it; or the phase's by-galaxy pass as a whole.
  * Nothing changes the workspace between units, so one unit's after-sums are
- * the next unit's before-sums. A total left not finite (its sum or its sum of
- * magnitudes) is fatal whatever the declarations, naming the phase, the unit
- * and the total. A total changes when |after - before| exceeds
+ * the next unit's before-sums; the phase's first unit's before-sums are the
+ * workspace as the phase finds it (a value left by initialisation, by a phase
+ * outside the ledger or by a post_snapshot module). A total left not finite
+ * (its sum or its sum of magnitudes) is fatal whatever the declarations, naming
+ * the phase, the unit and the total, and a total that enters the first unit
+ * not finite is fatal too, reported as having entered it. A total changes when
+ * |after - before| exceeds
  * max(8u (n_F + 2), 2^-40) S_F, u = 2^-53, n_F the larger of the total's entry
  * counts before and after and S_F the larger of its sums of magnitudes; the
  * floor keeps a conservative module's own rounding over many exchanges in one

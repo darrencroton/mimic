@@ -199,6 +199,23 @@
 #define RATE_DEFAULT_MAX_STEPS_PER_SEGMENT 100000
 #define RATE_DEFAULT_MAX_REJECTIONS_PER_STEP 30
 
+/**
+ * The smallest max_rejections_per_step the run file and the rate plan accept. Every
+ * segment first tries the whole segment as one step, so a segment that needs a small
+ * step begins with consecutive rejections; an error rejection shrinks the step to no
+ * less than the controller's minimum factor, a fifth, and twenty take the whole segment
+ * down to the minimum step (0.2^20 < 2^-46), so a smaller budget could fail a segment
+ * before its step is small enough to be accepted. The value follows from
+ * CONTROLLER_MIN_FACTOR and MIN_STEP in rate_integrator.c.
+ */
+#define RATE_MIN_REJECTIONS_PER_STEP 20
+
+/** Why the minimum holds, as the refusals of a smaller value say it */
+#define RATE_MIN_REJECTIONS_PER_STEP_REASON                                                        \
+  "A segment first tries the whole segment as one step and reaches a small step through "          \
+  "consecutive rejections; an error rejection shrinks the step to no less than a fifth, so "       \
+  "fewer than twenty could fail a segment before its step is small enough to be accepted"
+
 /** The end index of a flux that leaves or enters the component. */
 #define RATE_END_EXTERNAL (-1)
 
