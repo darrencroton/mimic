@@ -1,6 +1,6 @@
 # Mimic Backlog
 
-**Status:** Open, standing. **Last revised:** 2026-11-17.
+**Status:** Open, standing. **Last revised:** 2026-11-18.
 **Scope:** Small items, bounded fixes and decisions that are not being addressed now but must not be forgotten. Larger work has its own brief under `docs/dev/` and a place on the road in [`MIMIC-DEVELOPMENT-PATHWAY.md`](MIMIC-DEVELOPMENT-PATHWAY.md); this file holds what is too small for a brief and too real to drop. Each entry says what, where, why it waits, what to do and how to accept it, so a fresh session can pick one up from this file alone. An entry leaves when its work lands (one line in the pathway's changelog if it is worth recording) or when the owner decides it is not wanted.
 
 The architectural direction is [`docs/VISION.md`](../VISION.md); the conventions are [`docs/STYLE-GUIDE.md`](../STYLE-GUIDE.md). Nothing outside `docs/dev/` cites this file.
