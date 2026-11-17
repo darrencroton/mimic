@@ -5,7 +5,7 @@
 # _tests/data/regenerate.sh) with the four process_rates fixtures in one rate phase and the
 # discrete jump after it, run by tests/manual/run_rate_battery.py (make tests-rate). The
 # battery varies this file's scheme, time-stepping, module order, record creation, task count
-# and chunk count, and takes its module list and parameters from it for the real-data legs, so
+# and chunk count, and takes its module list and parameters from it for the cross-driver leg, so
 # the fixture's laws are set here once. Derived from forest_blocks_halos-only.yaml; the output
 # directory is overridden per run.
 #

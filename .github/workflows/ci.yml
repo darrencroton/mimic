@@ -176,19 +176,18 @@ jobs:
         fi
         echo "::endgroup::"
 
-    # The rate battery's legs that need no real data, on the committed forest_blocks fixture:
-    # the rate fixtures serial against -np 1, 2, 3, 4 and 8 and forest_chunks 2, 3 and 8, every
-    # order of the four rate modules under both schemes, and record creation across task
-    # counts. It builds its own test-build pairs (the second with MPI) and writes its whole
-    # output to build/rate_tests.log, printed by the next step. --oversubscribe lets the
-    # 8-rank case run on the runner's few cores. The cross-driver leg (with its stiff case and
-    # its reordered real-data runs, which are what can see a missing canonical order) runs
-    # locally (make tests-rate): it needs the real mini-Millennium data.
+    # The whole rate battery, on committed data only: vertical against horizontal on the
+    # committed mini-Millennium tree file and a conversion of it (with a stiff case, and
+    # reordered runs that can see a missing canonical order), then the forest_blocks fixture
+    # serial against -np 1, 2, 3, 4 and 8 and forest_chunks 2, 3 and 8, every order of the four
+    # rate modules under both schemes, and record creation across task counts. It builds its
+    # own test-build pairs and writes its whole output to build/rate_tests.log, printed by the
+    # next step. --oversubscribe lets the 8-rank case run on the runner's few cores.
     - name: Run rate battery
       env:
         MPIRUN: "mpirun --oversubscribe"
       run: |
-        make tests-rate RATE_BATTERY_ARGS=--offline
+        make tests-rate
 
     # Print the battery's log in a separate step that runs whether the battery passed,
     # failed, timed out or was cancelled, so a failure is diagnosable from the job.

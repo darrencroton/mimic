@@ -5,11 +5,10 @@ Run the rate battery: the rate mode's identity legs across drivers, tasks, chunk
 Usage::
 
     MODEL=<caller model> SIMULATION=<caller simulation> [MPIRUN="mpirun --oversubscribe"] \\
-        python tests/manual/run_rate_battery.py [--offline | --only LEG ...]
+        python tests/manual/run_rate_battery.py [--only LEG ...]
 
-``make tests-rate`` runs every leg. ``make tests-rate RATE_BATTERY_ARGS=--offline`` runs the legs
-that need no external data (CI's step). ``--only`` (repeatable) is a development aid: a filtered
-run is not the gate, so it ends with a ``PARTIAL:`` summary and exit status 3 even when every
+``make tests-rate`` runs every leg; CI runs it too. ``--only`` (repeatable) is a development aid:
+a filtered run is not the gate, so it ends with a ``PARTIAL:`` summary and exit status 3 even when every
 check it ran passed. ``MPIRUN`` is the launcher command (default ``mpirun``; CI uses ``mpirun
 --oversubscribe``), split with shell quoting rules and given ``-np <N>``. Needs Open MPI (or
 another MPI whose ``mpicc``/``mpirun`` are on PATH), HDF5 and libyaml. The integrator cost driver
@@ -22,9 +21,13 @@ parameters of ``simulations/mini-millennium-horizontal/_tests/input/forest_block
 The legs:
 
 ``cross-driver``
-    The real mini-Millennium data in both layouts (``mini-millennium`` through the vertical
-    driver, ``mini-millennium-horizontal`` through the horizontal one; the committed
-    ``halos-only`` run files with the rate modules added), under the explicit scheme with fixed
+    The committed single-file mini-Millennium tree, ``tests/data/input/trees_063.0``, in both
+    layouts: read as it is by the vertical driver (``mini-millennium``), and converted at the
+    start of the leg by the repository's converter (``convert/mimic-convert/convert_trees.py``
+    ingest, transpose and write, with ``simulations/mini-millennium``'s column map) into
+    ``output/rate-battery/cross/convert/`` for the horizontal driver
+    (``mini-millennium-horizontal``). The runs are the committed ``halos-only`` run files with the
+    rate modules added and the input redirected to that data, under the explicit scheme with fixed
     and with dynamic time-stepping, under the implicit scheme with fixed time-stepping and under
     the explicit scheme with fixed time-stepping and the fixtures' rate coefficients scaled by
     1e3 (the stiff case): four pairs of runs. Each pair must give per-``UniqueGalaxyID`` byte
@@ -41,9 +44,9 @@ The legs:
     ``RunProperties`` dataset and attribute but ``EnabledModules``, ``RunEndTime`` and the
     ``Version`` group's build attributes, which record the configured order and the run. The
     fixture's rows are too few for a missing canonical order to show (a rounding difference
-    almost never surfaces in 9 to 13 rows a snapshot); the 204,974 real rows show it. Needs the
-    real data under ``simulations/*/snapshots`` and fails, never skips, without it: the legs
-    that need none (``--offline``) leave this one out.
+    almost never surfaces in 9 to 13 rows a snapshot); the tree file's 23,055 output rows show
+    it (with modules and transfers listed and keyed in run-file order, both reordered runs fail
+    on ``Galaxies`` bytes). The leg needs no data outside the repository.
 ``task-chunk``
     The committed ``forest_blocks`` fixture (the rate run file above), a non-MPI serial run
     against ``$MPIRUN -np N`` for N in 1, 2, 3, 4, 8, against ``input.forest_chunks`` 2, 3 and 8
@@ -60,7 +63,7 @@ The legs:
     and the ``Version`` group's build attributes, which record the configured order and the run;
     the leg asserts that ``EnabledModules`` does record each order, so the runs differ in the
     configuration only. On 9 to 13 rows a snapshot this leg cannot see a missing canonical order
-    (the cross-driver leg's reordered real-data runs can); it proves the fixture's laws and the
+    (the cross-driver leg's reordered runs can); it proves the fixture's laws and the
     comparison's mechanics.
 ``record-creation``
     The same fixture with ``test_fixture`` creating records in ``pre_timestep``, ahead of the
@@ -173,10 +176,9 @@ FIXTURE_FIELDS = (
 ENABLED_MODULES = "RunProperties/EnabledModules"
 
 LEGS = ("cross-driver", "task-chunk", "permutation", "record-creation")
-OFFLINE_LEGS = ("task-chunk", "permutation", "record-creation")
 SCHEMES = ("explicit", "implicit")
 ORDERS = tuple(itertools.permutations(RATE_MODULES))
-# The real-data orders: the configured one, its reverse (every pair of modules swapped) and a
+# The cross-driver leg's orders: the configured one, its reverse (every pair of modules swapped) and a
 # third that swaps three of the six pairs (supply with formation, supply with stripping,
 # feedback with stripping) and keeps the other three.
 REAL_ORDERS = (
@@ -223,10 +225,21 @@ REAL_RUN_FILES = {
     "vertical": Path("models") / MODEL / "input" / f"{MODEL}_{VERTICAL_SIMULATION}.yaml",
     "horizontal": Path("models") / MODEL / "input" / f"{MODEL}_{HORIZONTAL_SIMULATION}.yaml",
 }
+# The cross-driver leg's data, all of it in the repository: the committed single-file
+# mini-Millennium tree (tests/data/input/, shared with the core test tiers through
+# tests/data/test_simulation.yaml) read by the vertical driver, and its horizontal conversion,
+# made by the repository's converter at the start of the leg, read by the horizontal one.
+COMMITTED_TREES = Path("tests") / "data" / "input"
+COMMITTED_TREE_NAME = "trees_063"
+COMMITTED_A_LIST = COMMITTED_TREES / "mini-millennium.a_list"
+CONVERTER = Path("convert") / "mimic-convert" / "convert_trees.py"
+CONVERTER_PROFILE = Path("simulations") / VERTICAL_SIMULATION  # simulation info, column map
+CONVERT_WORKDIR = WORK_ROOT / "cross" / "convert"
+CONVERT_TIMEOUT = 300  # a phase takes seconds; a hang must cost little
 
 BAD_MARKER_RE = re.compile(r"^MIMIC_RESULT: (FAIL|ERROR|SKIP|NA)\b.*$", re.MULTILINE)
 RUN_TIMEOUT = 120  # fixture runs take well under a second; a hang must cost little
-REAL_RUN_TIMEOUT = 1800  # a real-data run takes seconds; a hang is bounded, not waited out
+REAL_RUN_TIMEOUT = 300  # a tree-file run takes seconds; a hang must cost little
 
 
 class Statistics(NamedTuple):
@@ -248,6 +261,7 @@ class RateBattery(Battery):
         self.cases = {leg: 0 for leg in LEGS}
         self.real_outputs: dict[tuple[str, str], Path] = {}
         self.references: dict[str, Path] = {}
+        self.converted: Path | None = None  # the horizontal conversion of the committed tree
 
     # ------------------------------------------------------------------ plumbing
 
@@ -369,10 +383,55 @@ class RateBattery(Battery):
 
     # ------------------------------------------------------------------ cross-driver leg
 
+    def convert_committed_trees(self) -> None:
+        """Convert the committed tree file to the horizontal layout with the repository's
+        converter, so the horizontal driver reads the same halos the vertical one does. A bad
+        conversion that exits 0 still fails the leg, on the byte comparison with the vertical
+        runs."""
+        self.say("--- cross-driver: the committed tree file converted to the horizontal layout")
+        info = ["--simulation-info", str(CONVERTER_PROFILE / "simulation_info.yaml")]
+        phases = {
+            "ingest": [
+                "--source-format",
+                "lhalo_binary",
+                *info,
+                "--a-list",
+                str(COMMITTED_A_LIST),
+                "--column-map",
+                str(CONVERTER_PROFILE / "converter_columns.yaml"),
+                "--halo-properties",
+                str(CONVERTER_PROFILE / "halo_properties.yaml"),
+                "--source-dir",
+                str(COMMITTED_TREES),
+                "--tree-name",
+                COMMITTED_TREE_NAME,
+                "--first-file",
+                "0",
+                "--last-file",
+                "0",
+            ],
+            "transpose": [],
+            "write": info,
+        }
+        failed = None
+        for phase, arguments in phases.items():
+            cmd = [sys.executable, str(CONVERTER), phase, "--workdir", str(CONVERT_WORKDIR)]
+            status, _ = self.run([*cmd, *arguments], f"convert {phase}", CONVERT_TIMEOUT)
+            if status != 0:
+                failed = f"phase {phase} exited {status}"
+                break
+        attempts = sorted((CONVERT_WORKDIR / "write").glob("attempt_*"))
+        if failed is None and len(attempts) != 1:
+            failed = f"{len(attempts)} write attempts under {CONVERT_WORKDIR / 'write'}"
+        if self.marker(failed is None, "convert_committed_trees", failed or ""):
+            self.converted = attempts[0].relative_to(REPO_ROOT)
+
     def real_runs(self, layout: str) -> None:
-        """The cross-driver cases on one layout of the real mini-Millennium data."""
-        self.say(f"--- cross-driver runs: {layout} mini-Millennium")
-        base = real_config(layout)
+        """The cross-driver cases on one layout of the committed tree file."""
+        self.say(f"--- cross-driver runs: {layout} mini-Millennium (committed tree file)")
+        if layout == "horizontal" and self.converted is None:
+            return  # convert_committed_trees has failed; the pairs and the case count fail too
+        base = real_config(layout, self.converted)
         for case in CROSS_CASES:
             run_dir = WORK_ROOT / "cross" / case.name / layout
             config = rate_config(base, scheme=case.scheme, timestep=case.timestep, scale=case.scale)
@@ -439,11 +498,13 @@ class RateBattery(Battery):
                 )
 
     def real_permutations(self) -> None:
-        """The horizontal real-data run in the REAL_ORDERS other than the configured one, each
-        compared with the configured order's run (the explicit fixed case's)."""
-        self.say("--- cross-driver: module orders on the real data")
+        """The horizontal run in the REAL_ORDERS other than the configured one, each compared
+        with the configured order's run (the explicit fixed case's)."""
+        self.say("--- cross-driver: module orders on the committed tree file")
         reference = self.real_outputs.get(("horizontal", CROSS_CASES[0].name))
-        base = real_config("horizontal")
+        if reference is None:
+            return  # its run_horizontal marker has failed; the case count fails too
+        base = real_config("horizontal", self.converted)
         for index, order in enumerate(REAL_ORDERS[1:], start=1):
             name = f"real_order{index}"
             run_dir = WORK_ROOT / "cross" / f"order{index}" / "horizontal"
@@ -455,9 +516,6 @@ class RateBattery(Battery):
                 REAL_RUN_TIMEOUT,
             )
             if not self.run_marker(status, output, f"run_{name}"):
-                continue
-            if reference is None:
-                self.marker(False, f"permuted_{name}", "the configured order's run failed")
                 continue
             with self.case("cross-driver"):
                 self.check_permuted(name, reference, run_dir, "halos", order, "explicit")
@@ -638,6 +696,7 @@ class RateBattery(Battery):
         blocks = rate_config(rate_file, scheme="explicit")
         created = rate_config(rate_file, scheme="explicit", creation=True)
 
+        self.guarded("cross-driver", self.convert_committed_trees)
         if "cross-driver" in self.legs and self.build_pair(VERTICAL_SIMULATION, mpi=False):
             self.guarded("cross-driver", lambda: self.real_runs("vertical"))
         if not self.build_pair(HORIZONTAL_SIMULATION, mpi=False):
@@ -717,11 +776,27 @@ def rate_config(
     return derived
 
 
-def real_config(layout: str) -> dict:
+def real_config(layout: str, converted: Path | None) -> dict:
     """The committed ``halos-only`` run file of one mini-Millennium layout, with the rate
-    fixtures' modules and parameters (``forest_blocks_rate.yaml``'s) in place of its own."""
+    fixtures' modules and parameters (``forest_blocks_rate.yaml``'s) in place of its own and its
+    input redirected to the committed tree file (vertical) or ``converted``, its horizontal
+    conversion (horizontal)."""
     config = yaml.safe_load((REPO_ROOT / REAL_RUN_FILES[layout]).read_text())
     config["modules"] = copy.deepcopy(load_run_file(RATE_RUN_FILE)["modules"])
+    if layout == "vertical":
+        config["input"] = {
+            "simulation_dir": str(COMMITTED_TREES),
+            "snapshot_list_file": str(COMMITTED_A_LIST),
+            "first_file": 0,
+            "last_file": 0,
+        }
+    else:
+        if converted is None:
+            raise ValueError("the horizontal layout needs the converted dataset")
+        config["input"] = {
+            "simulation_dir": str(converted),
+            "snapshot_list_file": str(COMMITTED_A_LIST),
+        }
     return config
 
 
@@ -825,15 +900,9 @@ def read_enabled_modules(master: Path) -> list[str]:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--only", choices=LEGS, action="append")
-    group.add_argument("--offline", action="store_true", help="the legs needing no external data")
+    parser.add_argument("--only", choices=LEGS, action="append")
     args = parser.parse_args(argv)
-    legs = (
-        OFFLINE_LEGS
-        if args.offline
-        else tuple(leg for leg in LEGS if not args.only or leg in args.only)
-    )
+    legs = tuple(leg for leg in LEGS if not args.only or leg in args.only)
 
     if WORK_ROOT.exists():
         remove_tree(WORK_ROOT)
@@ -856,9 +925,8 @@ def main(argv=None) -> int:
             f"but a filtered run is not the gate; log: {LOG_PATH})"
         )
         return 3
-    mode = " --offline (cross-driver leg not run)" if args.offline else ""
     battery.say(
-        f"PASS: tests-rate{mode} ({battery.passes} checks over {summary}; every leg asserted "
+        f"PASS: tests-rate ({battery.passes} checks over {summary}; every leg asserted "
         f"non-zero fixture properties; no skips; log: {LOG_PATH})"
     )
     return 0
