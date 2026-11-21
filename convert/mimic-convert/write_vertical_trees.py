@@ -14,6 +14,10 @@ same dataset. Two subcommands, run in order into one output directory:
   convert   write, verify and rename every planned file (or the selected ones), in parallel
             across files, recording each in ``manifest.json``; a rerun resumes
 
+Both first check the dataset for the flyby-demotion signature (``flyby_signature.py``) and refuse
+a dataset carrying it unless ``--allow-flyby-signature`` is given to that invocation. The check
+belongs to this command line: a direct call to ``vertical.writer.convert`` is not checked.
+
 Usage:
 
     mimic_venv/bin/python convert/mimic-convert/write_vertical_trees.py plan \\
@@ -36,7 +40,8 @@ from typing import Optional, Sequence
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from errors import ConverterError  # noqa: E402
-from horizontal_dataset import HorizontalDataset  # noqa: E402
+from flyby_signature import count_horizontal_signature  # noqa: E402
+from horizontal_dataset import DEFAULT_BLOCK_ROWS, HorizontalDataset  # noqa: E402
 from vertical.assemble import DEFAULT_WINDOW_ROWS, WORKING_BYTES_PER_ROW  # noqa: E402
 from vertical.plan import (  # noqa: E402
     DEFAULT_MAX_FORESTS_PER_FILE,
@@ -79,7 +84,17 @@ signal terminates the workers at once and exits 2, leaving the files they were w
 <name>.<k>.partial, which the next run moves aside and rebuilds. Rerun the same command to
 resume. The workers ignore SIGINT, so only the parent reacts to Ctrl-C.
 
-Memory: convert prints its bound before it starts. Per worker it is
+Flyby signature: before anything else, plan and convert read the MostBoundID and
+FirstHaloInFOFgroup of the dataset's last snapshot holding halos and count the halos there with
+a negative MostBoundID that are not their own FoF central (the flyby-demotion signature). A
+non-zero count is refused unless --allow-flyby-signature is given to that invocation, which
+then warns on stderr naming the count and proceeds. The override is recorded only as part of
+convert's command line in manifest.json; file_plan.json does not record it. A forest ending
+before that snapshot is not checked.
+
+Memory: the flyby-signature check reads at most {check_rows:,} rows of its two columns at a
+time and holds at most 32 B per row of them ({check_mib} MiB). convert prints its bound before
+it starts. Per worker it is
   (2*S*R + L)*B + max(R, L)*(B + b + {working}) bytes
 for S slabs, R = --window-rows, L the plan's largest forest in halos, B the bytes per halo of
 the dataset columns read and b the record's bytes (the forest assembler's windows, the forest
@@ -93,16 +108,23 @@ Exit status: 0 when every selected file is complete; 1 when a file fails its ver
 SHA-256 of the re-read file against the one computed while writing): that file stays
 <name>.<k>.partial and is never renamed, while every other file is still written and
 recorded; 2 on a refusal: an invalid option, unreadable input, a dataset that is not version
-3, a missing or mismatching file_plan.json, a malformed forest, any other error in a
-file, a file another process is writing, a worker that died, a second convert in the
-directory, an interrupted run that left a file incomplete, or an unexpected error (named on
-stderr, after its traceback).
+3, a dataset carrying the flyby-demotion signature without --allow-flyby-signature, a dataset
+whose last snapshot holding halos lacks the MostBoundID or FirstHaloInFOFgroup the check reads,
+a missing or mismatching file_plan.json, a malformed forest, any other error in a file, a file
+another process is writing, a worker that died, a second convert in the directory, an
+interrupted run that left a file incomplete, or an unexpected error (named on stderr, after its
+traceback).
 """.format(
     working=WORKING_BYTES_PER_ROW,
     reread=VERIFY_BLOCK_BYTES >> 20,
     buffer=WRITE_BUFFER_BYTES >> 20,
     header=HEADER_BYTES_PER_FOREST,
+    check_rows=DEFAULT_BLOCK_ROWS,
+    check_mib=(32 * DEFAULT_BLOCK_ROWS) >> 20,
 )
+
+#: The option that lets one invocation proceed on a dataset carrying the flyby signature.
+FLYBY_OVERRIDE = "--allow-flyby-signature"
 
 
 def _positive(text: str) -> int:
@@ -126,6 +148,12 @@ def _common(parser: argparse.ArgumentParser) -> None:
         "--output",
         required=True,
         help="the output directory: file_plan.json, the files and manifest.json",
+    )
+    parser.add_argument(
+        FLYBY_OVERRIDE,
+        action="store_true",
+        help="proceed, with a warning, on a dataset whose last snapshot holding halos carries "
+        "the flyby-demotion signature (refused by default); this invocation only",
     )
 
 
@@ -206,7 +234,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def flyby_guard(input_dir, allow: bool, command: str) -> None:
+    """Refuse a dataset carrying the flyby-demotion signature unless ``allow``, in which case
+    warn on stderr and return. Read-only; see ``flyby_signature.count_horizontal_signature``.
+
+    Raises:
+        ConverterError: for a non-zero count without ``allow``, or as the count does.
+    """
+    dataset = HorizontalDataset(input_dir)
+    scan = count_horizontal_signature(dataset)
+    if not scan.halos:
+        return
+    found = (
+        "the dataset carries the flyby-demotion signature: {} halo(s) in snapshot {}, its last "
+        "snapshot holding halos, have a negative MostBoundID and are not their own FoF "
+        "central".format(scan.halos, scan.snapshot)
+    )
+    if not allow:
+        raise ConverterError(
+            "{}: {}; refusing to {} it -- pass {} to {} it anyway".format(
+                dataset.directory, found, command, FLYBY_OVERRIDE, command
+            )
+        )
+    print(
+        "WARNING: {}: {}; proceeding because {} was given".format(
+            dataset.directory, found, FLYBY_OVERRIDE
+        ),
+        file=sys.stderr,
+    )
+
+
 def cmd_plan(args) -> int:
+    flyby_guard(args.input, args.allow_flyby_signature, "plan")
     dataset = HorizontalDataset(args.input)
     plan = make_file_plan(
         dataset, args.halo_properties, args.max_halos_per_file, args.max_forests_per_file
@@ -238,6 +297,7 @@ def cmd_plan(args) -> int:
 
 
 def cmd_convert(args, argv: Sequence[str]) -> int:
+    flyby_guard(args.input, args.allow_flyby_signature, "convert")
     only_files = None if args.only_files is None else parse_file_selection(args.only_files)
     return convert(
         args.input,
