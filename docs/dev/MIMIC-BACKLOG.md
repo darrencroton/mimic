@@ -41,6 +41,8 @@ The architectural direction is [`docs/VISION.md`](../VISION.md); the conventions
 
 **Lessons from the `sage26` import that are not code.** The `sage16` package's own tests are binary-bound (17 files read `model_z0.000_0`), so no horizontal package runs them; its figures carry presentation quirks the `sage26` plot pass fixed in both packages' shared figures but not in `sage16`'s own; and its deliberate SAGE quirks are less completely marked (`git grep -c 'SAGE parity:'` over the non-test C sources gives 29 lines in `sage16` against 219 in `sage26`). None changes a result. Take them on together in the next `sage16` pass, which should start by listing the quirks `sage26` marked and checking each in `sage16`.
 
+**Figure labels and docstrings (found 2026-11-21).** sage16 and sage26 `quiescent_fraction.py:230-246`: the `CentralMvir < 13` curve is labelled "groups/clusters" and `>= 13` "field", both over all satellites; `output_utils.py:313` unit docstring `Mpc^-3 h^3 dex^-1` against `counts / volume * h^3`; `velocity_distribution.py:6` "galaxy velocities" against `Velocity / H0`; `stellar_mass_function.py` "Red"/"Blue" are an sSFR cut; `stellar_mass_density_evolution.py:74` "Dickenson". Each is a label or docstring that disagrees with what the code computes; the fix is the text.
+
 ## `sage26`
 
 **Findings of the alignment experiments with no compared effect.** From the campaign's alignment work: the merger-clock event's `Age` is rebuilt by addition (`shared/sage_merger_clock.h`), `Mvir` is float-rounded there, `MergTime` is never compared by the instrument, and one unattributed radius difference remains at the R1 rung (halo 10233590, snapshot 63, 1.7e-4 relative). None reaches a compared property on mini-Millennium. Do nothing unless a later reference differs there; this paragraph is the record.
@@ -85,6 +87,19 @@ The architectural direction is [`docs/VISION.md`](../VISION.md); the conventions
 - The shipped plot profiles carry `mode: exploration` or `mode: validation` (`plot/mimic-plot/profiles/default.yaml`, `models/sage16/plots/profiles/shin-uchuu_plot_profile.yaml`), but nothing in `plot/mimic-plot/` or any package's `plots/figures/` reads the key and no guide documents it: remove it, or document what it was meant to do.
 - `convert/mimic-convert/HORIZONTAL-HDF5-FORMAT.md` ("V3 Runtime Support"): the `shin-uchuu-ascii-horizontal` row still reports the uncut-migration subset gate (92,413,007 / 60,016,178 / 60,016,233, against `shin-uchuu-ascii`, now on a branch) and omits the production vertical comparison (found 2026-11-18).
 - `.agents/skills/mimic-failure-archaeology/SKILL.md` dates the acceptance of the `fix_flybys` z = 0 difference "2026-08"; the commit that documented it as known behaviour is `b727fd36`, 2026-06-20 (found 2026-11-18).
+
+**Found 2026-11-21** by checking the paper workspace's pre-v1.7 surveys against v1.7 (line numbers at `v1.7`; of the files named, only `Makefile` and `docs/DEVELOPER-GUIDE.md` changed since, and not at the lines cited):
+
+- `docs/VISION.md` is right, but `.agents/skills/mimic-architecture-contract/SKILL.md:42` (principle 7) says an "unknown YAML key" fails at startup and :51 says the parser "rejects unknown keys"; `reject_unknown_keys` guards only recognised sections (`src/core/read_parameter_file.c:687-1430`), the run file's top level has no whitelist (:155-252) and `modules.parameters` takes any name, as `mimic-config-and-flags/SKILL.md:40` says.
+- `mimic-architecture-contract/SKILL.md:136` and :192 (W5) and `mimic-properties/SKILL.md:75` say `docs/DEVELOPER-GUIDE.md` states that `init_repeat` fields reset "each substep"; the guide's "Transport Properties" (:799) says "reset once per snapshot, after inheritance", which is what `src/core/inheritance.c:27` does. Remove the three warnings.
+- `docs/DEVELOPER-GUIDE.md:1120` ("Adding a Vertical Reader") says the "driver loop in `src/core/main.c`" never changes; `main.c:432` only calls `run_processing_driver()`, and the loops are in `src/core/vertical_driver.c` (:468, :592, :678).
+- `models/sage16/README.md:32` lists the run files as mini-Millennium, Millennium, micro-Uchuu, mini-Uchuu and Uchuu; `models/sage16/input/` also holds `sage16_shin-uchuu.yaml`, `sage16_shin-uchuu-ascii-horizontal.yaml` and the horizontal run files. `models/halos-only/README.md:20` names one run file; 15 ship.
+- `README.md:26` calls `sage16` "reproduced from the original code"; `models/sage16/README.md:23-24` says baryons agree to about 1e-6 for 83-99.9% of galaxies, not bit for bit, and one z = 0 satellite differs. Say what the package README says.
+- `docs/VISION.md:126-127` ("Data Flow") lists metadata generation as step 2, after configuration loading; generation runs at build time (`Makefile:425-427`), before any run file is read.
+- `plot/mimic-plot/README.md:178` lists `halo_occupation` under "Halo Property Plots (always available)"; only `models/sage16` and `models/sage26` register it, `models/halos-only/plots/figures/` does not.
+- `simulations/mini-uchuu/README.md:3` says "~33.5 million forests"; `simulations/mini-uchuu-horizontal/README.md:19` says "25,843,142 forests" for the converted dataset. Reconcile or say why they differ.
+- `models/sham/README.md:13` cites `src/core/inheritance.c:182-186` for the seeding rule; at v1.7 the rule (a halo seeded only when it has no galaxy and is a FoF central) is at lines 186-189.
+- `models/sham/README.md:13` cites recorded output `output/sham-micro-uchuu-horizontal/sham_049.hdf5`, a gitignored directory no clone has: cite the command that reproduces it, or drop the path.
 
 Accept when each item is fixed or the owner has decided it stays, `make check-docs` passes, and no item changes written output.
 
