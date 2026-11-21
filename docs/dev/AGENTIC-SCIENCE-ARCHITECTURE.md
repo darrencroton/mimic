@@ -1,28 +1,28 @@
 # Agentic Science Architecture
 
-**Status:** Direction, adopted by the owner as the working direction on 2026-11-12 (revision 2). It is a direction and not a frozen plan: each stage below is chosen for what it teaches, and it may supersede every other plan in `docs/dev/` depending on how the shakedowns go. Stage 2a restructured sci-paper as ai-agent-science on 2026-11-17, and ai-agent-science v5 reshaped its paper skill on 2026-11-19 (see [The Road](#the-road)); nothing else has been restructured yet.
+**Status:** Direction, adopted by the owner as the working direction on 2026-11-12 (revision 2). It is a direction and not a frozen plan: each stage below is chosen for what it teaches, and it may supersede every other plan in `docs/dev/` depending on how the shakedowns go. Stage 2a restructured sci-paper as ai-agent-science on 2026-11-17, ai-agent-science v5 reshaped its paper skill on 2026-11-19, and v6 completed it as a first version on 2026-11-21, every stage with a file, which v6.1 generalised the same day so that an investigation can commission its readers (see [The Road](#the-road)). Four lab campaigns and `uchuu-trees` have run as the first shakedowns ([The shakedowns that ran](#the-shakedowns-that-ran)); no repository has yet been restructured on a branch for stage 3.
 
 **Scope:** The architecture for campaign-style autonomous model building and scientific exploration across three repositories (Mimic, ai-agent-coder, and ai-agent-science, which was sci-paper until 2026-11-17): what each home owns, which tools exist and where they live, what a science campaign run is, and the ordered road from today to the first shakedowns. It reaches beyond Mimic and lives here because Mimic is the first subject and `docs/dev/` is where its owner plans; it moves when a second subject exists.
 
-**Design guides:** ai-agent-coder's `docs/VISION.md` for the toolkits and the engine. Mimic's [`docs/VISION.md`](../VISION.md) and [`docs/STYLE-GUIDE.md`](../STYLE-GUIDE.md) bound what may live in Mimic. This document revises the direction of [`MIMIC-SCIENCE-CAMPAIGNS-MAP.md`](MIMIC-SCIENCE-CAMPAIGNS-MAP.md) and wins where the two differ; the map stays until the consolidation in [stage 3](#the-road).
+**Design guides:** ai-agent-coder's `docs/VISION.md` for the toolkits and the engine. Mimic's [`docs/VISION.md`](../VISION.md) and [`docs/STYLE-GUIDE.md`](../STYLE-GUIDE.md) bound what may live in Mimic. This document superseded the science-campaigns map (`MIMIC-SCIENCE-CAMPAIGNS-MAP.md`, 2026-11-10), which was archived on 2026-11-21 to the gitignored `archive/dev-plans/`; where its content now lives is under [What Happens to `docs/dev`](#what-happens-to-docsdev).
 
 ---
 
 ## Summary
 
-**Two toolkits hold method, and a subject is what they work on.** ai-agent-coder holds technical method and the one orchestration engine. ai-agent-science holds scientific method: literature, paper writing, and the thin `evidence` skill and challenger brief that meet the engine. Mimic is the subject, and another model framework can stand in its place. A binding (a person at the keyboard, a paper workspace, or a campaign brief) picks the parts a piece of work needs.
+**Two toolkits hold method, and a subject is what they work on.** ai-agent-coder holds technical method and the one orchestration engine. ai-agent-science holds scientific method: literature and paper writing, with the `paper` skill's evidence procedure (`evidence.md`) and its reader briefs (challenger, checker, referee and stylist) as the parts that meet the engine. Mimic is the subject, and another model framework can stand in its place. A binding (a person at the keyboard, a paper workspace, or a campaign brief) picks the parts a piece of work needs.
 
-Six points define the direction:
+Seven points define the direction:
 
 1. **Mimic is a subject, not a third toolkit.** It describes only itself.
 2. **There is one engine.** Campaign mode (Mode C) in ai-agent-coder runs every campaign. There is no science manager.
 3. **Dependencies run one way.** The engine names no domain, the science toolkit names no subject, and only a brief names all the parts.
 4. **The standard of evidence is a set of clauses in the brief.** The owner writes them for each question. Nothing is called a floor unless code enforces it.
 5. **The Campaign Manager stands in the author's seat.** Where a science skill says the author decides or verifies, in a campaign that is the Campaign Manager, acting under the brief. A child session writes, the Campaign Manager judges, and anything that leaves the machine stays the owner's.
-6. **Build a minimal version, run a shakedown, apply the lessons, repeat.** Each repository takes a branch that looks like the intended shape, and shakedowns find the gaps and the friction until the problems drop into the noise.
+6. **Build a minimal version, run a shakedown, apply the lessons, repeat.** Each repository takes a branch that looks like the intended shape, and shakedowns find the gaps and the friction until the problems drop into the noise. (In practice the shakedowns came first: ai-agent-coder took the lessons of three lab campaigns on its `main` between campaigns, and ai-agent-science changed through its v5 and v6 branches, each merged to its `main`.)
 7. **The published models are the proving ground.** `sage16` and `sage26` stay as published. Each is forked onto the coupled rate formulation (the first fork has the working name `sage16rate`) and recalibrated to reproduce the published results. The forks are not new models for publication: they exist to develop the tools and the workflow, and for the owner's scientific curiosity. The first fork is the first science campaign, as the SAGE26 import was the first real test of campaign mode.
 
-**What is next:** stage 1 is built and released (v1.7); stage 2b, the Mimic paper, runs beside the lab campaigns, in the order of [the pathway](MIMIC-DEVELOPMENT-PATHWAY.md#the-sequence-from-here-owner-2026-11-17).
+**What is next:** stage 1 is built and released (v1.7). The four lab campaigns have run (2026-11-14 to 11-19) and `uchuu-trees` is in its last node (2026-11-21). Stage 2b, the Mimic paper, has seven sections drafted and waits on its science focus, chosen once `uchuu-trees` closes, in the order of [the pathway](MIMIC-DEVELOPMENT-PATHWAY.md#the-sequence-from-here-owner-2026-11-17). For the toolkits, in order: `uchuu-trees`' findings read into the paper with `evidence.md` (its first real use); ai-agent-coder's three pending sentences ([stage 3](#the-road)); the focus session, then the stylist's outline mode for the paper's narrative; the referee's first runs; and `finish` at submission.
 
 ### Terms
 
@@ -50,7 +50,7 @@ Six points define the direction:
 | Home | Kind | Owns | Never holds |
 |---|---|---|---|
 | **ai-agent-coder** | Method | The atomic technical skills (plan, implement, audit, review, commit, report); the engine; the mechanical floor; the brief, dossier and receipt formats | Any domain: no science, no subject |
-| **ai-agent-science** (sci-paper until 2026-11-17) | Method | The science skills (`paper`, `literature`, `evidence`); a core of eight rules every session reads; the literature notebook format | Any subject; any orchestration |
+| **ai-agent-science** (sci-paper until 2026-11-17) | Method | The science skills (`paper`, `literature`), and the `paper` skill's reader briefs, which an investigation can also commission; a core of eight rules every session reads; the literature notebook format | Any subject; any orchestration |
 | **Mimic** | Subject | The framework and model packages; its own skills (facts about itself); its tools `plot/`, `convert/` and `bench/`; its observational tables | Campaign state; literature; general method |
 | **Campaign dossiers** | Records | One repository per campaign under `campaigns/`, outside every product | Method; anything a later campaign should not read |
 | **Paper workspaces** | Records | One repository per paper: the manuscript and its memory | — |
@@ -80,8 +80,8 @@ flowchart TB
     end
 
     subgraph science["ai-agent-science: scientific method"]
-        s1["Skills: literature, summarise-paper, evidence; the challenger brief"]
-        s2["paper: a map of stages, a core of rules, reader briefs"]
+        s1["literature; the evidence procedure; the reader briefs: challenger, checker, referee, stylist"]
+        s2["paper: a map of stages, a core of rules, a file for each stage"]
         s3["Evidence clauses (catalogue: open)"]
     end
 
@@ -118,11 +118,11 @@ flowchart TB
 | Project Manager (Mode B) | Supervise one frozen plan under the mechanical floor | ai-agent-coder | Built |
 | Campaign Manager (Mode C) | Plan and run many nodes against a brief; judge; merge | ai-agent-coder | Built and proven on the SAGE26 import (merged to its `main` on 2026-11-08) |
 | `literature` | Search, follow citations, mine values with their exact source | ai-agent-science | Built at stage 2a on NASA ADS: unbound from the paper (it runs in a paper workspace, in a notebook directory a caller names, or with no paper), with a fifth question, provenance |
-| `summarise-paper` | Structured summary of one paper | ai-agent-science | Exists in the owner's home skills, with a near-copy in two summary applications; to be one |
-| `paper` | A one-page map of stages (orient, position, evidence, draft, verify, style and shape, referee, finish, respond), none a gate, over a core of eight rules; procedures, reader briefs, techniques, and `tools/traces.py` with a check stamp | ai-agent-science | Built (v5, 2026-11-19; design in ai-agent-science's `docs/design.md`): `start`, `draft`, `review`, `revise`, the checker, challenger and referee briefs. Not yet written: `finish`, the stylist brief |
-| `evidence` | Turn a claim into a question with a declared test; the form findings come back in, and how a paper pins them | ai-agent-science | Not yet written; thin. Written after the first session that chooses a paper's science focus from campaign findings |
-| Challenger brief | An independent attempt to refute a headline claim from the artefacts: `skills/paper/readers/challenger.md`, which a campaign's task node loads as a pinned input | ai-agent-science | Built |
-| Evidence-clause catalogue | The known failures of agent-run science, each with the clause that guards against it | Open | Not in v5: its nearest are the challenger's named attacks and `evidence`'s scoping conventions. Seeded, if kept, from the failure table of the campaigns map |
+| `summarise-paper` | Structured summary of one paper | ai-agent-science | Not in the toolkit: it exists in the owner's home skills, with a near-copy in two summary applications; to be one |
+| `paper` | A one-page map of stages (orient, position, evidence, draft, verify, style and shape, referee, finish, respond), none a gate, over a core of eight rules; procedures, reader briefs, techniques, and `tools/traces.py` with a check stamp | ai-agent-science | Built (v6, 2026-11-21, generalised as v6.1 the same day; design in ai-agent-science's `docs/design.md`): every stage has a file, among them `start`, `evidence`, `draft`, `review`, `revise` and `finish`; four reader briefs, with the stylist central to planning and writing; `tools/traces.py` has `sample`, the author's audit sheet. Deliberately left out: a reply-letter procedure (the loop's dispositions, with a `latexdiff`, are the reply) |
+| `evidence.md` | Turn a claim into a question with a declared test; the form findings come back in, and how a paper pins them | ai-agent-science, a stage file of `paper`, not a separate skill | Built (v6). Its first real use is reading `uchuu-trees`' findings into the Mimic paper |
+| Reader briefs | Each a file in `skills/paper/readers/` handed to a fresh context. The challenger tries to refute a headline claim from the artefacts; the checker asks whether each sentence says what its source says; the referee judges a paper against its field and journal; the stylist reads how a text communicates, in four modes (outline, paragraph plan, section, milestone) and a document mode for an investigation's report, brief or plan | ai-agent-science | Built. Since v6.1 an investigation can commission any of them under its brief (a Campaign Manager) or plan (a Project Manager), loading the brief as a pinned input with the binding supplying what a workspace would (`skills/paper/review.md`, *Outside a paper workspace*); that use is designed and not yet exercised. In the paper workspace the challenger has narrowed claims, and the stylist has made its first milestone read |
+| Evidence-clause catalogue | The known failures of agent-run science, each with the clause that guards against it | Open | Not in v6.1: its nearest are the challenger's named attacks and `evidence.md`'s conventions for scoping a claim. Seeded, if kept, from the failure table under [The Standard of Evidence](#the-standard-of-evidence) |
 | Mimic and its packages | Run specified physics deterministically, with provenance | Mimic | Built |
 | `mimic-*` skills | Facts about Mimic, loaded by any agent working on it | Mimic | Built, sixteen |
 | The bench | Turn parameters into observables with provenance; host the methods that use them | Mimic, `bench/mimic-bench/` | Built; its home is reviewed in stage 3 |
@@ -134,10 +134,10 @@ flowchart TB
 | Configuration | Bound by | Use | Works today |
 |---|---|---|---|
 | ai-agent-coder alone | Keyboard or brief | Any software project | Yes |
-| ai-agent-science alone | Keyboard or paper workspace | A literature question; a summary; writing a paper | Yes: literature runs with no paper, and `paper` writes a paper in its workspace; `finish` and `evidence` are not yet written. The installed copy is on branch `v5` until it is merged to `main` |
+| ai-agent-science alone | Keyboard or paper workspace | A literature question; a summary; writing a paper | Yes: literature runs with no paper, and `paper` writes a paper in its workspace, every stage having a file (v6.1) |
 | Mimic alone | Keyboard | Running and extending a model | Yes |
 | Coder and Mimic | Brief | A software campaign on Mimic (the SAGE26 import) | Yes |
-| Science and Mimic | Keyboard, then paper workspace | An experiment, then the paper about it | Partly |
+| Science and Mimic | Keyboard, then paper workspace | An experiment, then the paper about it | Partly: four lab campaigns' findings pinned and read into the Mimic paper's workspace, `uchuu-trees`' next; the paper not yet finished |
 | Coder and science | Brief | A science campaign on a code that is not Mimic | Never exercised |
 | All three | Brief | A science campaign on Mimic | The goal |
 
@@ -226,7 +226,7 @@ Each starts as a convention in a brief and becomes contract text or code only wh
 
 An illustration, using the large campaign of [stage 4](#the-road): the fork of `sage16` onto the rate mode.
 
-1. **Scope.** The owner, with the `evidence` skill's scoping conventions, turns the goal into a brief with four questions. How far is the published `sage16` from converged, and how much does module order move it? Does the fork converge, and is it independent of order? Is there a parameter set with which it reproduces the published results, to a standard the Campaign Manager defines? Which parameters moved, and by how much?
+1. **Scope.** The owner, with `evidence.md`'s conventions for scoping a claim, turns the goal into a brief with four questions. How far is the published `sage16` from converged, and how much does module order move it? Does the fork converge, and is it independent of order? Is there a parameter set with which it reproduces the published results, to a standard the Campaign Manager defines? Which parameters moved, and by how much?
 2. **Reconcile.** The Campaign Manager runs preflight against the brief's digest and opens the ledger.
 3. **Literature.** One evidence node surveys how the published model was calibrated and what is known about time-step convergence in semi-analytic models.
 4. **Measure the published model.** Evidence nodes from the template measure the noise floor, then the time-step ladder and the legal module orderings.
@@ -243,7 +243,7 @@ An illustration, using the large campaign of [stage 4](#the-road): the fork of `
 
 The standard of evidence for a campaign is a set of clauses in its brief. The owner writes or selects them for the question in hand, so they fit that question and are approved by a person each time. ai-agent-coder's word *floor* is kept for what code enforces: the changed-file surface, commit ancestry, the plan digest and approval flags.
 
-The owner selects from a catalogue of known failures, each with the clause that guards against it, which opens with the failures the campaigns map already lists. The v5 design of ai-agent-science keeps no such catalogue, only the challenger brief's named attacks and the `evidence` skill's scoping conventions (`docs/design.md` §5), so whether the toolkit keeps one is an open question for the owner:
+The owner selects from a catalogue of known failures, each with the clause that guards against it, which opens with the failures the campaigns map listed (the map is archived; its table is below). The v6.1 design of ai-agent-science keeps no such catalogue, only the challenger brief's named attacks and `evidence.md`'s conventions for scoping a claim (`docs/design.md` §5), so whether the toolkit keeps one is an open question for the owner:
 
 | Failure | Clause |
 |---|---|
@@ -273,8 +273,8 @@ Five stages. Each ends in something used. The order is the owner's, with the adj
 flowchart TD
     S1["1 · The rate mode in Mimic<br/>a frozen plan, run by the Project Manager"]:::mimic
     S1r["Release: the bench and the rate mode"]:::mimic
-    S2a["2a · ai-agent-science branch<br/>rename, split literature, one paper skill (v5)"]:::sci
-    S2b["2b · The Mimic paper<br/>builds what v5 left to be built from use"]:::sci
+    S2a["2a · ai-agent-science branch<br/>rename, split literature, one paper skill (v5 to v6.1)"]:::sci
+    S2b["2b · The Mimic paper<br/>refines the toolkit from use"]:::sci
     S3["3 · Minimal versions on branches<br/>coder, science and Mimic"]:::build
     S4a["4a · Campaign: the published models' numerics"]:::exp
     S4b["4b · Campaign: fork sage16 onto the rate mode,<br/>recalibrated to the published results"]:::exp
@@ -297,16 +297,16 @@ flowchart TD
 | Stage | Work | Where | Done when |
 |---|---|---|---|
 | **1** | **The rate mode.** A frozen implementation plan derived from [the coupled-rate brief](MIMIC-COUPLED-RATE-FORMULATION-PLAN.md), run by the Project Manager as an ordinary Mode B plan: the rate-term processing mode, the assembly of declared transfers, the integrator, the conservation ledger and their metadata. It is proven on a model-neutral fixture with known solutions, as every piece of core infrastructure is, and not on `sage16`'s physics | Mimic, the core | Conservation is machine-checked; the fixture shows the expected convergence rate; permuting rate terms gives bit-identical output; every existing package and gate is green with the mode unused; released with the bench by the backlog's recipe |
-| **2a** | **Open the ai-agent-science branch.** Rename; `literature` split from the paper binding; the paper skills folded into one `paper` skill. As built it had modes and a default for every author question; v5 replaced both (design in ai-agent-science's `docs/design.md`) | sci-paper, on a branch | The existing skills work as before from the new shape, alone and from a paper workspace. **Done 2026-11-17**: tested old against new and reviewed by an external panel (ai-agent-science Plan §14.5); the Mimic paper's workspace migrated the same day. Superseded in shape 2026-11-19 by v5, after an independent design the owner accepted; the workspace migrated again |
-| **2b** | **The Mimic paper.** It is the first paper and the vehicle for what v5 left to be built from use: the stylist brief (after a hand run on a complete first draft), the referee's first runs, the `evidence` skill (after the session that chooses its science focus), `finish` with the audit sheet and the reply letter (at submission), and figures and co-authors techniques (at their second need). The owner started it with what existed: the method and the introduction, with literature searches and the repository's history and releases used to map the features worth the paper's weight. What it reports is decided by that work | ai-agent-science and the paper's workspace | The paper goes to submission, written with the skill |
-| **3** | **Minimal versions on branches.** Coder: the verdict convention, an investigation brief template, skills pinned by copy. Science: the thin `evidence` skill if 2b has not yet written it, and the clause catalogue if the owner keeps one. Mimic: one observational table read by a figure and the bench, the bench's home decided, `docs/dev/` consolidated | One branch per repository | A science brief can be written and preflighted end to end |
+| **2a** | **Open the ai-agent-science branch.** Rename; `literature` split from the paper binding; the paper skills folded into one `paper` skill. As built it had modes and a default for every author question; v5 replaced both (design in ai-agent-science's `docs/design.md`) | sci-paper, on a branch | The existing skills work as before from the new shape, alone and from a paper workspace. **Done 2026-11-17**: tested old against new and reviewed by an external panel (ai-agent-science Plan §14.5); the Mimic paper's workspace migrated the same day. Superseded in shape 2026-11-19 by v5, after an independent design the owner accepted; the workspace migrated again. Completed by v6 (2026-11-21): a complete first version, every stage with a file, refined from use from then on (decision 17 of its design); generalised the same day as v6.1, so that an investigation can commission the reader briefs (decision 18) |
+| **2b** | **The Mimic paper.** It is the first paper and the vehicle on which v6.1 is refined from use. Built in v6 and still to be exercised by it: the stylist, central to planning and writing (its first milestone read is done; its outline mode follows the session that chooses the science focus), `evidence.md` (first real use: reading `uchuu-trees`' findings), the referee's first runs, and `finish` with the audit sheet (at submission). Left out of the design (its `docs/design.md` §6): a reply-letter procedure (owner, 2026-11-21: the loop's dispositions, with a `latexdiff`, are the reply), and techniques for figures and co-authors. The owner started it with what existed: the method and the introduction, with literature searches and the repository's history and releases used to map the features worth the paper's weight. What it reports is decided by that work | ai-agent-science and the paper's workspace | The paper goes to submission, written with the skill |
+| **3** | **Minimal versions on branches.** Coder: the verdict convention, an investigation brief template, skills pinned by copy. The lab campaigns ran without them, with claims, declared tests and verdicts as conventions in their briefs, and the engine took their lessons between campaigns (ai-agent-coder `3dc95d1`, `f099ee7`, `f8ab719`). Pending until `uchuu-trees` closes, when no campaign depends on the engine's pinned version: three generic sentences from ai-agent-science's `docs/design.md` §5 (a campaign's final report ends with a list of every file it cites; an auditor may ask for a check of an input; a brief may name a pinned input as the prompt for the independent challenge). Science: the clause catalogue if the owner keeps one. Mimic: one observational table read by a figure and the bench, the bench's home decided, `docs/dev/` consolidated | One branch per repository | A science brief can be written and preflighted end to end |
 | **4a** | **Campaign: the numerics of the published models.** `sage16` and `sage26` as shipped: the noise floor, time-step refinement, the legal module orderings. It is small and needs no new core, so it is the shakedown before the large campaign | A dossier; Mimic unchanged | Every question has a verdict; the retrospective is written and its lessons applied to the toolkits |
 | **4b** | **Campaign: fork `sage16` onto the rate mode.** A new package beside the published one (working name `sage16rate`); the classified prescriptions as declared transfers; convergence and order-independence shown; recalibration to reproduce the published results, to a standard the Campaign Manager defines and records first, with some statistics held back for one check; the parameter shifts attributed | A dossier; a new package under `models/` | A verdict on whether, and how closely, the published results are reproduced; the retrospective written and the toolkits updated from it |
 | **5** | **Fork `sage26` the same way,** then a paper the owner wants reproduced, then an open question | The dossiers | — |
 
 Notes on the order:
 
-- **Stages 1 and 2 share nothing.** One was a plan in Mimic's core (released in v1.7), the other is ai-agent-science and the paper (2a built, then reshaped by v5; 2b under way). The owner's attention decides how far they overlap.
+- **Stages 1 and 2 share nothing.** One was a plan in Mimic's core (released in v1.7), the other is ai-agent-science and the paper (2a built, reshaped by v5, completed by v6 and generalised by v6.1; 2b under way). The owner's attention decides how far they overlap.
 - **The published models make a good first campaign because they give a reference without parity.** The SAGE26 import was gated bit for bit. Here the target is the published model's own population results on the same trees, so there is a clear standard, and it has to be met through declared statistics, tolerances and verdicts, which is the new machinery. No observational constraint set or discrepancy budget is needed, because the comparison is model against model.
 - **Nobody holds the answer.** Whether a converged, order-independent `sage16` can reproduce its published results, and how far its parameters must move, is unknown. So there is no key to hide, and "it cannot, for these statistics" is a real result. The brief says "if possible" in so many words.
 - **The standard of "reproduces" is the Campaign Manager's to define.** Real science questions offer targets far vaguer than this one, and the owner settles them from experience. Part of the purpose of these tools is to find out how far that experience and intuition translate, so the brief delegates this decision on purpose. Three guards keep the experiment honest without narrowing the judgement. The definition is recorded before the runs it governs. Once recorded it is not loosened: a change is a recorded decision with its reasons. And the owner writes their own answer beforehand and keeps it outside every repository, so the two can be compared at acceptance. That comparison is the measurement.
@@ -356,6 +356,10 @@ What 4b is known to need that does not exist yet:
 - **A constraint table made from a model run.** The target is the published model's captured statistics, pinned by digest, in place of a table mined from a paper.
 - **A model-to-model tolerance.** On the same trees there is no sample variance, so the floor is the count roughness that 4a measures.
 
+### The shakedowns that ran
+
+The first shakedowns were not the ones planned above. Before stage 3 or 4a, five campaigns ran on the existing machinery, each answering its own question and finding friction on the way. The four lab campaigns, `lab-physics`, `lab-universe`, `lab-families` and `lab-build` (2026-11-14 to 11-19), each varied one thing Mimic makes interchangeable (the physics, the simulation, the kind of model, and who builds a module) to supply the Mimic paper's demonstrations; each declared its claims before its confirming runs, closed with a verdict on each and the owner's sign-off, and was read into the paper workspace. `uchuu-trees`, a data campaign to correct the mini-Uchuu trees and audit the Uchuu datasets, launched on 2026-11-19 and is in its last node on 2026-11-21. The lessons of `lab-universe`, `lab-families` and `lab-build` reached ai-agent-coder before the next campaign launched. The pathway's [Merge order and the lab campaigns](MIMIC-DEVELOPMENT-PATHWAY.md#merge-order-and-the-lab-campaigns) and [The sequence from here](MIMIC-DEVELOPMENT-PATHWAY.md#the-sequence-from-here-owner-2026-11-17) have each one's record.
+
 ---
 
 ## Decisions
@@ -365,7 +369,7 @@ What 4b is known to need that does not exist yet:
 1. The standard of evidence is brief clauses, written for each question. There is no science floor.
 2. In a campaign the Campaign Manager holds the author's seat for the science skills.
 3. The method is a minimal version, a shakedown, lessons, and iteration.
-4. Each repository is restructured on a branch.
+4. Each repository is restructured on a branch. (Overtaken in practice by 2026-11-21: ai-agent-science changed on its v5 and v6 branches, each merged to its `main`; ai-agent-coder took campaign lessons on its `main`; no Mimic branch was made.)
 5. Outside access for literature is granted through the sandbox policy.
 6. The Mimic paper is the first paper and the vehicle for the paper skill. The converter paper that sci-paper's plan names as its vehicle is on hold.
 7. `sage16` and `sage26` are published models and stay so. Each is forked onto the rate formulation as a new package (`sage16rate` first), and parameters are sought that reproduce the published results, if that is possible. The forks are not new models for publication: they are for the owner's own use, for developing the tools and the workflow, and for scientific curiosity.
@@ -381,28 +385,31 @@ What 4b is known to need that does not exist yet:
 4. **Stage 1 is proven on a fixture, not on `sage16`.** The core then stays free of any model, and the campaign's build is not done in advance.
 5. **The Campaign Manager's standard is recorded before the runs it governs and is not loosened afterwards.** The engine's contract makes every target and tolerance the owner's, so the brief must grant this permission in so many words; the two rules then keep the delegation from becoming a test tuned until it passes.
 6. **The owner writes their own standard first and keeps it outside every repository,** as the answer key for this one question.
-7. **The paper starts before the sci-paper restructure.** The existing modes (start, draft, literature, voice) are enough for the method, the introduction and the feature map. The restructure is needed before the unbuilt modes are built, not before the paper begins.
+7. **The paper starts before the sci-paper restructure.** The existing modes (start, draft, literature, voice) are enough for the method, the introduction and the feature map. The restructure is needed before the unbuilt modes are built, not before the paper begins. (Moot since 2026-11-19: v5 replaced the modes.)
+
+**Taken since:**
+
+- **The name** (formerly open decision 1): `ai-agent-science`, in use since the rename of 2026-11-17. `ai-agent-scientist` would have matched `ai-agent-coder` but implied an autonomy the design withholds.
 
 **Open:**
 
-1. **The name.** `ai-agent-science` describes a toolkit. `ai-agent-scientist` matches `ai-agent-coder` and implies an autonomy the design withholds. Recommended: `ai-agent-science`.
-2. **Where the bench lives.** Decided on 2026-11-12 as inside Mimic, with its own trigger for reopening: a second simulator becoming a named consumer. Stage 3 reviews it on a Mimic branch. Three options: stay; a general core as its own library with an adapter per subject; move into ai-agent-science. Recommended: stay, and put new bench work behind the adapter seam so that the second option is a relocation. The third puts numerical dependencies and domain data into a method toolkit.
-3. **One observational table source.** The emulator plan requires that constraint provenance does not fork. The figures hold literals and the bench holds a copy, so the single source is owed whatever the bench's home. Campaign 4b does not wait on it.
-4. **Retiring the model-builder plan.** Its re-review has been due since August. Recommended: retire it in stage 3 with its eight requirements carried, word for word, as the clauses of a build brief.
-5. **Where this document lives** once a second subject exists.
+1. **Where the bench lives.** Decided on 2026-11-12 as inside Mimic, with its own trigger for reopening: a second simulator becoming a named consumer. Stage 3 reviews it on a Mimic branch. Three options: stay; a general core as its own library with an adapter per subject; move into ai-agent-science. Recommended: stay, and put new bench work behind the adapter seam so that the second option is a relocation. The third puts numerical dependencies and domain data into a method toolkit.
+2. **One observational table source.** The emulator plan requires that constraint provenance does not fork. The figures hold literals and the bench holds a copy, so the single source is owed whatever the bench's home. Campaign 4b does not wait on it.
+3. **Retiring the model-builder plan.** Its re-review has been due since August. Recommended: retire it in stage 3 with its eight requirements carried, word for word, as the clauses of a build brief. `lab-build` (2026-11-19) has since exercised the build class: agents added a published prescription as a new module under a campaign brief.
+4. **Where this document lives** once a second subject exists.
 
 ---
 
 ## What Happens to `docs/dev`
 
-Deferred to stage 3. Until then only the pathway and the status lines of the affected plans point here. The intended outcome, for the consolidation to check against the files as they then stand:
+Deferred to stage 3, except the campaigns map, archived on 2026-11-21 (its row below). Until then only the pathway and the status lines of the affected plans point here. The intended outcome, for the consolidation to check against the files as they then stand:
 
 | Document | Action |
 |---|---|
 | `AGENTIC-SCIENCE-ARCHITECTURE.md` | This document. It becomes the programme plan: the stages, the shakedowns and what each promoted |
 | `MIMIC-DEVELOPMENT-PATHWAY.md` | **Revise** into Mimic's roadmap as a subject. Keep the standing constraints, the data paths, the hold-out discipline, the reasons for decisions taken, and the changelog |
-| `MIMIC-SCIENCE-CAMPAIGNS-MAP.md` | **Supersede, then archive.** Its failure table seeds the clause catalogue if one is kept, and meanwhile is the source of example clauses; its judging toolkit and its account of what replaces parity move here or to ai-agent-science |
-| `MIMIC-MODEL-BUILDER-PLAN.md` | **Retire, then archive** (open decision 6), with its requirements, gate stack, open problems and fit-for-purpose questions carried as build-brief clauses |
+| `MIMIC-SCIENCE-CAMPAIGNS-MAP.md` | **Archived 2026-11-21**, wholly superseded, to the gitignored `archive/dev-plans/`. Last in git at `54c6bffc`. Four of its seven failures are carried under [The Standard of Evidence](#the-standard-of-evidence), where they seed the clause catalogue if one is kept; three (process overwhelming the experiments, a question left too open, commitment to a refuted hypothesis) remain only in the archived map; the questions of its judging toolkit are summarised in the pathway's [Where This Is Heading](MIMIC-DEVELOPMENT-PATHWAY.md#where-this-is-heading); its account of what replaces parity is carried by the evidence clauses here and by ai-agent-coder's campaign contract (*Trust before use*, *A holdout stays unseen*) |
+| `MIMIC-MODEL-BUILDER-PLAN.md` | **Retire, then archive** (open decision 3), with its requirements, gate stack, open problems and fit-for-purpose questions carried as build-brief clauses |
 | `MIMIC-EMULATOR-PLAN.md` | **Revise and rename** as the bench plan: the two settled decisions, the promotion record, the gate, the carried requirements, and the adapter seam |
 | `MIMIC-COUPLED-RATE-FORMULATION-PLAN.md` | **Keep.** Stage 1 is its core; stage 4 is its conversion and recalibration |
 | `SAGE16-PRESCRIPTION-CLASSIFICATION.md`, `SAGE26-PRESCRIPTION-CLASSIFICATION.md` | **Keep.** The settled inputs of the stage 4 and 5 conversions |
