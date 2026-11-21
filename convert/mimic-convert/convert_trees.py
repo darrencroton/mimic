@@ -80,6 +80,14 @@ with ``--bounded`` they run the battery's bounded mode instead
 (``validate_bounded.py``): adjacent datasets only, no sort and no spill,
 within a ceiling it prints at start and refuses above the budget.
 
+**Flyby signature.** ``ingest`` pre-scans an L-Halo source for the
+flyby-demotion signature (a halo with a negative ``MostBoundID`` that is not
+its own FoF central, at its tree's last snapshot; ``flyby_signature.py``) and
+refuses it with exit 2 unless ``--allow-flyby-signature`` is given to that
+invocation, which warns and records the acceptance in the ingest stage
+result. The flag is per invocation (a resumed ingest must pass it again) and
+is refused for a Consistent-Trees conversion.
+
 **Exit status.** 0 on success; 1 when ``validate`` or ``report`` finds the
 dataset failing the battery (``report`` still writes its report); 2 when a
 command is refused or stops on an error -- bad arguments, a stage run out of
@@ -546,6 +554,11 @@ def cmd_ingest(args) -> int:
         for name in ("simulation_info", "a_list"):
             if getattr(args, name) is None:
                 raise ConverterError("--source-format needs {} as well".format(_flag(name)))
+        if args.allow_flyby_signature and args.source_format != "lhalo_binary":
+            raise ConverterError(
+                "--allow-flyby-signature applies to --source-format lhalo_binary only, not {}; "
+                "refusing rather than ignoring it".format(args.source_format)
+            )
         schema, parameters, _n, budget_bytes = _resolve_configuration(args)
         _announce_profile(args, schema)
         pipeline.initialize(
@@ -560,7 +573,7 @@ def cmd_ingest(args) -> int:
             ),
             transpose_budget_bytes=budget_bytes,
         )
-    manifest = pipeline.run_ingest(args.workdir)
+    manifest = pipeline.run_ingest(args.workdir, allow_flyby_signature=args.allow_flyby_signature)
     result = manifest.stage("ingest")["result"]
     print(
         "ingest: COMPLETE -- {} halo(s) in {} chunk(s) under {}".format(
@@ -859,6 +872,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "root to its forest after the cut). Hosts are resolved under --forests-list, then every "
         "halo whose central lies in another forest of the table becomes a central; the table's "
         "md5 is part of the recorded configuration",
+    )
+    ingest.add_argument(
+        "--allow-flyby-signature",
+        action="store_true",
+        help="lhalo_binary only: ingest a source carrying the flyby-demotion signature (negative "
+        "MostBoundID on a non-central at its tree's last snapshot), which is otherwise refused "
+        "with exit 2; warns, and records the acceptance in the ingest stage result. Applies to "
+        "this invocation only: a resumed ingest must pass it again",
     )
 
     transpose = sub.add_parser(

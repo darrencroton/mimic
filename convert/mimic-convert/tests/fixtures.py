@@ -1730,6 +1730,15 @@ def edit_column(dataset_dir, snap, name, edit):
         column[...] = values
 
 
+def negate_most_bound_id(dataset_dir, snap, rows):
+    """Negate ``MostBoundID`` on the listed rows of one slab (the flyby-demotion sign)."""
+
+    def edit(values):
+        values[list(rows)] = -np.abs(values[list(rows)])
+
+    edit_column(dataset_dir, snap, "MostBoundID", edit)
+
+
 # ---------------------------------------------------------------------------
 # Assertion and capture helpers
 # ---------------------------------------------------------------------------

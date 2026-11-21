@@ -252,6 +252,7 @@ class StageChainTests(CliCase):
         self.assertEqual(len(list(dataset.glob("snapshot_*.h5"))), n_snapshots)
         report = json.loads((work / "conversion_report.json").read_text())
         self.assertTrue(report["validation_passed"])
+        self.assert_flyby_signature_recorded(work, route_value(route, "--source-format"))
         # the text report names the battery that settled the verdicts
         self.assertIn(", external-sort battery\n", (work / "conversion_report.txt").read_text())
         # Format capability ("format consumed"), not route validation.
@@ -263,6 +264,22 @@ class StageChainTests(CliCase):
         if expect_adjacent:
             self.assert_bounded_mode_agrees(work)
         return work
+
+    def assert_flyby_signature_recorded(self, work, source_format):
+        """The ingest stage records the flyby-signature check -- checked and
+        clean for every shipped L-Halo fixture, not checked for the
+        Consistent-Trees routes -- and the report carries it into both files."""
+        if source_format == "lhalo_binary":
+            entry = {"checked": True, "halos": 0, "trees": 0, "allowed": False}
+            line = "flyby signature: checked, none found"
+        else:
+            entry = {"checked": False, "reason": "source format {}".format(source_format)}
+            line = "flyby signature: not checked (source format {})".format(source_format)
+        manifest = json.loads((work / "manifest.json").read_text())
+        self.assertEqual(manifest["stages"]["ingest"]["result"]["flyby_signature"], entry)
+        report = json.loads((work / "conversion_report.json").read_text())
+        self.assertEqual(report["source"]["flyby_signature"], entry)
+        self.assertIn("\n{}\n".format(line), (work / "conversion_report.txt").read_text())
 
     def assert_bounded_mode_agrees(self, work):
         """The bounded mode gives the default battery's 20 check statuses on
@@ -534,6 +551,112 @@ class FailureTests(CliCase):
         result = self.cli("ingest", "--workdir", work, *self.route, expect=2)
         self.assertIn("holds a scatter manifest", result.stderr)
         self.assertEqual(tree_state(work), before)
+
+
+class FlybySignatureCliTests(CliCase):
+    """``ingest`` refuses an L-Halo source carrying the flyby-demotion
+    signature with exit 2 unless ``--allow-flyby-signature`` is given, and
+    refuses the flag for a Consistent-Trees conversion."""
+
+    #: Rows 1 and 2 are satellites of row 0 at the tree's last snapshot with
+    #: a negative MostBoundID: two signature halos in one tree.
+    SIGNATURE_TREE = [
+        dict(SnapNum=3, FirstHaloInFOFgroup=0, NextHaloInFOFgroup=1, MostBoundID=21),
+        dict(SnapNum=3, FirstHaloInFOFgroup=0, NextHaloInFOFgroup=2, MostBoundID=-22),
+        dict(SnapNum=3, FirstHaloInFOFgroup=0, MostBoundID=-23),
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.work = self.tmp / "work"
+
+    def signature_route(self):
+        source = self.tmp / "signature"
+        source.mkdir()
+        fixtures.write_lhalo_file(
+            str(source / "trees_063.0"), [fixtures.LITERAL_TREE_A, fixtures.LITERAL_TREE_B]
+        )
+        bad = fixtures.write_lhalo_file(
+            str(source / "trees_063.1"), [fixtures.LITERAL_TREE_C, self.SIGNATURE_TREE]
+        )
+        route = lhalo_route("mini-millennium", source, "trees_063", last_file=1)
+        return route, os.path.realpath(bad)
+
+    def ingest_record(self):
+        manifest = json.loads((self.work / "manifest.json").read_text())
+        return manifest["stages"]["ingest"]
+
+    def test_a_signature_source_is_refused_then_allowed_by_the_flag(self):
+        route, bad = self.signature_route()
+        refused = self.cli("ingest", "--workdir", self.work, *route, expect=2)
+        for text in (
+            "the source carries the flyby-demotion signature: 2 halo(s) in 1 tree(s)",
+            "first in source file ordinal 1, {}".format(bad),
+            "pass --allow-flyby-signature",
+        ):
+            self.assertIn(text, refused.stderr)
+        self.assertNotIn("ingest: COMPLETE", refused.stdout)
+        record = self.ingest_record()
+        self.assertEqual(
+            (record["status"], record["attempt"], record["artifacts"]), ("pending", 0, [])
+        )
+        self.assertFalse((self.work / "ingest").exists())
+
+        # a resume without the flag is refused the same way
+        resumed = self.cli("ingest", "--workdir", self.work, expect=2)
+        self.assertIn("--allow-flyby-signature", resumed.stderr)
+
+        allowed = self.cli("ingest", "--workdir", self.work, "--allow-flyby-signature")
+        self.assertIn("ingest: COMPLETE", allowed.stdout)
+        self.assertIn("WARNING: the source carries the flyby-demotion signature", allowed.stderr)
+        self.assertIn("2 halo(s) in 1 tree(s)", allowed.stderr)
+        self.assertEqual(
+            self.ingest_record()["result"]["flyby_signature"],
+            {"checked": True, "halos": 2, "trees": 1, "allowed": True},
+        )
+        # a completed allowed ingest is skipped on resume; its entry stands
+        again = self.cli("ingest", "--workdir", self.work)
+        self.assertNotIn("WARNING", again.stderr)
+        self.assertTrue(self.ingest_record()["result"]["flyby_signature"]["allowed"])
+
+    def test_the_flag_with_a_clean_source_neither_warns_nor_records_an_acceptance(self):
+        route = lhalo_route("mini-millennium", self.literal_gapped_source(), "trees_063", 1)
+        result = self.cli("ingest", "--workdir", self.work, *route, "--allow-flyby-signature")
+        self.assertNotIn("WARNING", result.stderr)
+        self.assertEqual(
+            self.ingest_record()["result"]["flyby_signature"],
+            {"checked": True, "halos": 0, "trees": 0, "allowed": False},
+        )
+
+    def test_the_flag_with_a_consistent_trees_format_is_refused(self):
+        for name, route in (
+            ("hdf5", hdf5_route("uchuu", "mergertree_info.h5")),
+            ("ascii", ascii_route()),
+        ):
+            with self.subTest(name):
+                work = self.tmp / name
+                result = self.cli(
+                    "ingest", "--workdir", work, *route, "--allow-flyby-signature", expect=2
+                )
+                self.assertIn(
+                    "--allow-flyby-signature applies to --source-format lhalo_binary only",
+                    result.stderr,
+                )
+                self.assertFalse(work.exists(), "a refused ingest created its workdir")
+
+    def test_the_flag_on_a_resumed_consistent_trees_workdir_is_refused(self):
+        route = hdf5_route("uchuu", "mergertree_info.h5")
+        self.cli("ingest", "--workdir", self.work, *route, "--memory-budget-mb", BUDGET_MB)
+        before = (self.work / "manifest.json").read_bytes()
+        # the stage is complete: the flag is refused before the skip, never ignored
+        for args in ((), tuple(route) + ("--memory-budget-mb", BUDGET_MB)):
+            with self.subTest(named=bool(args)):
+                result = self.cli(
+                    "ingest", "--workdir", self.work, *args, "--allow-flyby-signature", expect=2
+                )
+                self.assertIn("--allow-flyby-signature applies to", result.stderr)
+                self.assertIn("consistent_trees_hdf5", result.stderr)
+        self.assertEqual((self.work / "manifest.json").read_bytes(), before)
 
 
 class BindingRoute(NamedTuple):

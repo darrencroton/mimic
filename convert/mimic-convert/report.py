@@ -199,6 +199,11 @@ def build_report_v3(manifest, battery, dataset_dir) -> dict:
             "source_format": schema.source_format,
             "adapter_parameters": configuration["adapter"]["parameters"],
             "inventory": manifest.inventory,
+            # The ingest stage's flyby-signature check; None for a workdir
+            # ingested before the check existed (never read as zero).
+            "flyby_signature": (manifest.stage("ingest").get("result") or {}).get(
+                "flyby_signature"
+            ),
             "dependencies": [
                 {key: record.get(key) for key in ("path", "roles", "size_bytes", "sha256")}
                 for record in manifest.dependencies
@@ -321,6 +326,33 @@ def _v3_runtime_status_header(report: dict) -> str:
     )
 
 
+def _flyby_signature_lines(entry: Optional[Mapping]) -> List[str]:
+    """One rendering per state of the ingest stage's ``flyby_signature``
+    entry: none found, found (a heading with the counts and whether the
+    override accepted it), not checked for a source format, and no entry at
+    all -- a workdir ingested before the check, which is never shown as
+    zero."""
+    if entry is None:
+        return ["flyby signature: not checked"]
+    if not entry.get("checked"):
+        return ["flyby signature: not checked ({})".format(entry.get("reason"))]
+    if not entry.get("halos"):
+        return ["flyby signature: checked, none found"]
+    return [
+        "",
+        "THE SOURCE CARRIES THE FLYBY-DEMOTION SIGNATURE",
+        "  flyby signature: {} halo(s) in {} tree(s) have a negative MostBoundID, are not their "
+        "own FoF central and lie at their tree's last snapshot".format(
+            entry.get("halos"), entry.get("trees")
+        ),
+        "  {}".format(
+            "allowed: converted because --allow-flyby-signature was given"
+            if entry.get("allowed")
+            else "allowed: no"
+        ),
+    ]
+
+
 def render_text_v3(report: dict) -> str:
     source = report["source"]
     totals = report["totals"]
@@ -351,6 +383,7 @@ def render_text_v3(report: dict) -> str:
                 report["mapping"]["source_layout"]["itemsize"],
             )
         ),
+        *_flyby_signature_lines(source.get("flyby_signature")),
         "",
         "totals: {} halo(s) in {} snapshot file(s) ({} populated); {} forest(s); {} "
         "Len==0 halo(s)".format(
