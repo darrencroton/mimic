@@ -29,6 +29,6 @@ The developer record of how the mini-Uchuu and micro-Uchuu tree data now in use 
 ## Where things are
 
 - **Data (Mac).** `/Volumes/Internal/data/uchuu/mini-uchuu/{mini-uchuu-lhalo,mini-uchuu-horizontal}` and `/Volumes/Internal/data/uchuu/micro-uchuu/{micro-uchuu-lhalo,micro-uchuu-horizontal}` hold the reissued sets; `conversion-provenance/` in each family folder holds the regeneration and `Len` records (`lhalo_len.py` sidecars, the converter workdir manifests). The superseded sets are on `/Volumes/Scratch/data/uchuu/{mini-uchuu,micro-uchuu}/*-old`.
-- **Data (NT).** The owner copies the reissued sets to `/fred/oz214/dcroton/{mini-uchuu,micro-uchuu}/`, in the same layout as `shin-uchuu`.
+- **Data (NT).** The owner copies the reissued sets, with their `conversion-provenance/` folders, to `/fred/oz214/dcroton/data/uchuu/{mini-uchuu,micro-uchuu}/`, the Mac's layout under NT's data home.
 - **Code.** The tools are in `convert/mimic-convert/` on `main`. The campaign's measuring instruments (`experiments/uchuu-trees/`: the flyby and shared-identifier scanners, the halo-by-halo matchers and comparison) are not on `main`; they are kept at the local tags `uchuu-trees/integration` (the signed-off integration head), `uchuu-trees/relen` (that head plus `lhalo_len.py`) and `uchuu-trees/dupscan` (the shared-identifier scanner, never merged), and in the `campaign/uchuu-trees/*` branches.
 - **Upstream.** The defect is in sage-model's `convert_trees_to_lhalo` with `fix_flybys` active; the owner reports it upstream.
