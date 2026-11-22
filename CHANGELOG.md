@@ -6,6 +6,34 @@ Versions are git tags; `RunProperties/Version` in every HDF5 output and `metadat
 
 ---
 
+## Unreleased
+
+This release reissues the mini-Uchuu and micro-Uchuu data and adds the converter tools that make it. Read "Upgrading" before running on either simulation.
+
+### Upgrading
+
+- **Replace the mini-Uchuu L-Halo files and the `mini-uchuu-horizontal` dataset.** Copies obtained before November 2026 are superseded and should be replaced. The converter refuses the old L-Halo files unless `--allow-flyby-signature` is given (under Developer-facing changes).
+- **Replace the micro-Uchuu L-Halo files (or rewrite their `Len` with `convert/mimic-convert/lhalo_len.py`) and the `micro-uchuu-horizontal` dataset.** Copies obtained before November 2026 carry a `Len` that is not at the suite's particle mass.
+- **Nothing else needs action.** Every other package, and every run file, runs as it did.
+
+### Changes that alter output
+
+- **Runs on `mini-uchuu`, `mini-uchuu-horizontal`, `micro-uchuu` and `micro-uchuu-horizontal` differ from earlier releases because the data changed.** No module, run file or model changed.
+
+### Fixes
+
+- **The mini-Uchuu L-Halo files were regenerated and `mini-uchuu-horizontal` was remade from them, superseding the 2022 files.** The 2022 files carried a flyby defect at each forest's last snapshot that demoted FoF centrals to satellites, and gave halos in later trees of a multi-tree forest another row's `MostBoundID`, so halos shared identifiers.
+- **`Len` in the mini-Uchuu and micro-Uchuu L-Halo files and in both horizontal datasets is set at the suite's particle mass, 0.0327** (1e10 Msun/h, the value in each package's `simulation_info.yaml`), where earlier copies carried a `Len` derived at a different particle mass.
+
+### Developer-facing changes
+
+- **The converter refuses an L-Halo source that carries the flyby-demotion signature, and `--allow-flyby-signature` accepts it.** `convert_trees.py ingest` pre-scans an L-Halo source, and `write_vertical_trees.py plan` and `convert` check a version 3 dataset; each exits 2 on a source carrying the signature unless the option is given to that invocation. The detection is `convert/mimic-convert/flyby_signature.py`, the result is recorded in the ingest stage's manifest entry and in `conversion_report.txt`, and the format's rules are unchanged. See "The flyby-signature guard" in `convert/mimic-convert/README.md`.
+- **`convert/mimic-convert/ctrees_to_lhalo.py` converts Consistent-Trees ASCII trees to L-Halo binary files** the way sage-model's `convert_trees_to_lhalo` did at sage-model commit `9218e11`, with two deliberate differences: it demotes no FoF central at a forest's last snapshot, and each halo's `MostBoundID` is its own `id`. Its manual is `convert/mimic-convert/CTREES-TO-LHALO.md`.
+- **`convert/mimic-convert/lhalo_len.py` checks and sets the `Len` of L-Halo binary files at a particle mass.** `check` reads the files and reports how many `Len` differ from the value at a particle mass and the interval of particle masses that reproduces every `Len`; `rewrite` writes copies in which only `Len` differs, with a sidecar recording the counts and hashes.
+- **The rate-phase integration checks build what they test on any package's fixture.** In `tests/integration/test_rate_phase.py`, the stiff-rate check scales the rates from an unscaled run's largest `K_max`, and the two jump checks create their own orphans and subtract a no-jump baseline, so they no longer fail on packages whose fixture never reaches the positivity cap or has no orphan, such as `mini-uchuu`. Test-side only; no model output changes.
+
+---
+
 ## v1.7 (2026-11-14)
 
 Mimic v1.7 adds two things. The bench, `bench/mimic-bench/`, is an offline tool that evaluates a model over a parameter design, with history matching by emulators as its first method. The rate mode, `process_rates`, is a new way to write physics: modules declare conservative transfers between reservoirs and return rate coefficients, and the core integrates them as one system with error control. No model package uses the rate mode yet, and a run file that configures no rate phase gives the galaxy output it gave before the mode was added.
