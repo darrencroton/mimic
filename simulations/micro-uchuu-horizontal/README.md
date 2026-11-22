@@ -14,7 +14,7 @@ This package declares the horizontal HDF5 on-disk record for the micro-Uchuu hal
 
 ## Data provenance
 
-The dataset is not primary data. It was made in November 2026 by `convert/mimic-convert/convert_trees.py` from the reissued `micro-uchuu` L-Halo files, the same `Uchuu100_Planck_lhalo_binary.0`–`.3` files that `simulations/micro-uchuu/` reads, using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`. A copy of this dataset obtained before November 2026 is superseded and should be replaced.
+The dataset is not primary data. It was made by `convert/mimic-convert/convert_trees.py` from the `micro-uchuu` L-Halo files, the same `Uchuu100_Planck_lhalo_binary.0`–`.3` files that `simulations/micro-uchuu/` reads, using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`. A copy converted from L-Halo files that fail the `Len` check in [the `micro-uchuu` README](../micro-uchuu/README.md) should be remade from the current files.
 
 Converted: 22,580,924 halos across 50 snapshots and 440,651 forests, with no gapped links (`links_adjacent = 1`). The producer validation battery (`convert/mimic-convert/convert_trees.py validate`) passed.
 

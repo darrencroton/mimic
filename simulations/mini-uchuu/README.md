@@ -11,13 +11,15 @@ This package runs Mimic against the mini-Uchuu merger trees in L-Halo binary for
 
 **Data files required in `snapshots/`:**
 
-128 binary files (151.0 GB total), made in November 2026 from the public Uchuu Consistent-Trees catalogues by `convert/mimic-convert/ctrees_to_lhalo.py`, with `Len` then set at the particle mass 0.0327 by `convert/mimic-convert/lhalo_len.py`; on the files compared, the result is byte-identical to running `ctrees_to_lhalo.py --particle-mass 0.0327`. Files obtained before November 2026 are superseded and should be replaced:
+128 binary files (151.0 GB total), made from the public Uchuu Consistent-Trees catalogues by `convert/mimic-convert/ctrees_to_lhalo.py`, with `Len` at the particle mass 0.0327; `ctrees_to_lhalo.py --particle-mass 0.0327` regenerates them ([the converter manual's example](../../convert/mimic-convert/CTREES-TO-LHALO.md#example-the-mini-uchuu-set)):
 ```text
 Uchuu400_Planck_lhalo_binary.0
 Uchuu400_Planck_lhalo_binary.1
 ...
 Uchuu400_Planck_lhalo_binary.127
 ```
+
+Earlier copies carry the flyby-demotion signature and are superseded; `convert_trees.py ingest` refuses them.
 
 **Mirror maintenance:** `halo_properties.yaml` follows the `simulations/micro-uchuu/` and `simulations/mini-millennium/` layout (same 26-field L-Halo struct). When changing the lhalo field schema, apply the same change to those packages. Only the `Pos` range differs between them.
 

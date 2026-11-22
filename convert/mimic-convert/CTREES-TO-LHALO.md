@@ -1,25 +1,14 @@
 # Consistent-Trees ASCII to L-Halo with `ctrees_to_lhalo.py`
 
-**Purpose**: The manual for `ctrees_to_lhalo.py`, the script that converts Consistent-Trees ASCII merger trees (`tree_*.dat` with `forests.list` and `locations.dat`) into L-Halo binary files the way sage-model's `convert_trees_to_lhalo` did when it wrote the mini-Uchuu L-Halo files of June 2022, the reference conversion, with exactly two deliberate differences. Given the reference conversion's particle mass (`--particle-mass`), the output is byte-identical to the reference conversion's in every field the two differences do not touch, which is a property to check by comparison rather than to assume; `Len` follows the particle mass given, so a run at another particle mass differs from the reference in `Len` alone, on top of the two differences.
+**Purpose**: The manual for `ctrees_to_lhalo.py`, the script that converts Consistent-Trees ASCII merger trees (`tree_*.dat` with `forests.list` and `locations.dat`) into L-Halo binary files the way sage-model's `convert_trees_to_lhalo` did, with exactly two deliberate differences. Given the particle mass sage-model was run with, the output is byte-identical to sage-model's in every field the two differences do not touch, which is a property to check by comparison rather than to assume; `Len` follows `--particle-mass`.
 
 The script is standalone. It does not use or change the other converter modules in this directory, any simulation package or any dataset; it opens its inputs read-only and writes only the output files it is asked for. It needs Python 3.12+ and `numpy` (both in `mimic_venv`), and it never starts subprocesses or worker pools: parallelism comes from running several processes over disjoint ranges of output files.
 
 ## What it reproduces
 
-The reference is sage-model **as it stood at commit `9218e11` (2022-06-11)**, the last commit before the 2022 files were written. Every line number below is in a file at that commit (`git -C <sage-model> show 9218e11:<path>`); the module docstring of `ctrees_to_lhalo.py` cites the same lines step by step.
+The reference is sage-model **as it stood at commit `9218e11` (2022-06-11)**. The module docstring of `ctrees_to_lhalo.py` maps each step of the conversion to sage-model's code at that commit, line by line (`git -C <sage-model> show 9218e11:<path>`).
 
 Terms: an *ASCII tree* is one `#tree` block of a `tree_*.dat` file; a *forest* is the set of ASCII trees sharing a `ForestID` in `forests.list`, and it is one L-Halo "tree" of the output files.
-
-| Step | sage-model at `9218e11` |
-|---|---|
-| Read `forests.list` and `locations.dat`, resolve tree files from the directory of `locations.dat`, require contiguous file ids and a perfect-cube file count, pair the two tables by tree id and refuse disagreement | `read_forests`, `read_locations`, `assign_forest_ids`: `src/io/ctrees_utils.c` lines 24-294 |
-| Order the trees by (`ForestID`, `FileID`, `Offset`) and number the forests in that order | `read_tree_consistentrees_ascii.c` lines 64-79 |
-| Take the column map from the header line of `tree_0_0_0.dat` beside `locations.dat` (sage-model's `SimulationDir/TreeName`) | `parse_header_ctrees`, `src/io/parse_ctrees.h` lines 166-321; `read_tree_consistentrees_ascii.c` lines 21-25 and 242-292 |
-| Read a tree's rows from its offset to the next line beginning `#`, parsing `scale`/`desc_scale` as float64, the ids as int64, `snap_num` as int32 and every other column as float32 exactly as `strtof` rounds it | `read_single_tree_ctrees` and `parse_line_ctrees`, `src/io/parse_ctrees.h` lines 323-515 |
-| Convert each ASCII tree's conventions (Spin, masses times `1e-10`, `Len = (int) roundf(Mvir * (1/PartMass))`, `FileNr`, `SubhaloIndex`, `SubHalfMass`) | `convert_ctrees_conventions_to_lht`, `read_tree_consistentrees_ascii.c` lines 426-463 |
-| Check the forest's last snapshot for FoF centrals (`fix_flybys`), then resolve hosts (`fix_upid`) and build the output order and the FoF, descendant and progenitor links (`assign_mergertree_indices`) | `src/io/ctrees_utils.c` lines 297-735, called from `load_forest_ctrees`, `read_tree_consistentrees_ascii.c` lines 325-424 |
-| Split the forests over the output files | `setup_forests_io_ctrees`, `read_tree_consistentrees_ascii.c` lines 83-124 |
-| Write each output file (header, then each forest's records) | `convert_trees_to_lhalo`, `src/sage.c` lines 358-528 |
 
 The record is sage-model's `struct halo_data` (`src/core_simulation.h`), 104 bytes, little-endian, which is the layout Mimic's `simulations/mini-uchuu/halo_properties.yaml` declares (`Mvir` there is Mimic's `M_Crit200`).
 
@@ -102,21 +91,23 @@ The mini-Uchuu L-Halo set is 128 files named `Uchuu400_Planck_lhalo_binary.<t>`,
 ASCII=<ascii-dir>
 OUT=<out-dir>
 MASS=0.0327
+PIDS=""
 for k in 0 1 2 3 4 5 6 7; do
     mimic_venv/bin/python convert/mimic-convert/ctrees_to_lhalo.py \
         --forests-list "$ASCII/forests.list" --locations "$ASCII/locations.dat" \
         --n-files 128 --files $((16 * k))-$((16 * k + 15)) \
         --particle-mass "$MASS" --tree-name Uchuu400_Planck_lhalo_binary --out "$OUT" &
+    PIDS="$PIDS $!"
 done
-wait
+for pid in $PIDS; do
+    wait "$pid" || echo "process $pid failed" >&2
+done
 ```
 
-That runs eight processes of sixteen files each and takes about 21 hours for all 128 files, reading the ASCII catalogues from an external disk (the run is limited by random reads of the ASCII trees); any split into disjoint ranges gives the same files. Check that every process exited 0 and that all 128 files and sidecars exist before using the set. Each process holds its own copy of the forest tables in memory.
+That runs eight processes of sixteen files each; one run of it took about 21 hours for all 128 files, reading the ASCII catalogues from an external disk (the run is limited by random reads of the ASCII trees); any split into disjoint ranges gives the same files. Check that every process exited 0 and that all 128 files and sidecars exist before using the set. Each process holds its own copy of the forest tables in memory.
 
 ## The particle mass
 
 `PartMass` enters the conversion only through `Len = (int) roundf(Mvir * (1.0/PartMass))` (`read_tree_consistentrees_ascii.c` line 441 at `9218e11`): the float32 scaled `Mvir` times the double reciprocal gives a double, which is narrowed to float32 and rounded half away from zero. Neither difference touches `Mvir` or `Len`, so every record of a written file constrains the particle mass, and the masses that reproduce a set of `Len` values form an interval of doubles rather than a point.
 
 `particle_mass_interval` in `ctrees_to_lhalo.py` finds that interval exactly from the records' `Mvir` and `Len` (`particle_mass_interval_of_files` reads them from L-Halo files, and `lhalo_len.py check` reports the result): it is a bisection over the bit patterns of the doubles, nothing is sampled, every double between its ends (`low` and `high`) reproduces every `Len`, and none outside does. `shortest_decimal` names the decimal with the fewest significant digits inside the interval (of those, the one nearest its midpoint), which is the `value` that reproduces the files checked, and the result is empty when no particle mass reproduces every `Len`.
-
-The 2022 mini-Uchuu L-Halo files' `Len` are reproduced at 0.0325. The Uchuu suite's particle mass is 0.0327 (1e10 Msun/h).

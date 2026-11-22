@@ -2,11 +2,9 @@
 #
 # `snapshots/` is a symlink to your local copy of the tree data directory.
 # Files: Uchuu400_Planck_lhalo_binary.{0..127} (128 files, ~151 GB total).
-# Made in November 2026 from the public Uchuu Consistent-Trees catalogues by
-# convert/mimic-convert/ctrees_to_lhalo.py, with Len then set at the particle
-# mass 0.0327 by convert/mimic-convert/lhalo_len.py; files obtained before
-# November 2026 are superseded and should be replaced. The 26-field L-Halo
-# struct layout is identical to micro-uchuu and mini-Millennium.
+# Made from the public Uchuu Consistent-Trees catalogues by
+# convert/mimic-convert/ctrees_to_lhalo.py, with Len at the particle mass 0.0327.
+# The 26-field L-Halo struct layout is identical to micro-uchuu and mini-Millennium.
 
 input:
   first_file: 0

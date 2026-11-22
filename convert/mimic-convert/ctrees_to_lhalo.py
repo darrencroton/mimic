@@ -1,9 +1,8 @@
-"""Consistent-Trees ASCII forests to L-Halo records, as sage-model converted them in 2022.
+"""Consistent-Trees ASCII forests to L-Halo records, the way sage-model's
+``convert_trees_to_lhalo`` wrote them.
 
-The mini-Uchuu L-Halo files of June 2022 were written by sage-model's
-``convert_trees_to_lhalo`` from the Consistent-Trees ASCII trees. This module reproduces
-that conversion as the code stood at sage-model commit ``9218e11`` (2022-06-11), the last
-commit before those files were written, with exactly two differences (below). Every line
+This module reproduces sage-model's ``convert_trees_to_lhalo`` as the code stood at
+sage-model commit ``9218e11`` (2022-06-11), with exactly two differences (below). Every line
 reference in this docstring and in the code is to a file at that commit, read with
 ``git -C <sage-model> show 9218e11:<path>``.
 
@@ -135,7 +134,8 @@ Writing the output files (``main``; ``convert_trees_to_lhalo``, ``src/sage.c`` l
   count), then each forest's records in turn, little-endian; the file is named
   ``<tree-name>.<t>`` (``"%s%s.%d"``, line 447). The header line of the tree files is that
   of ``tree_0_0_0.dat`` beside ``locations.dat`` (``SimulationDir/TreeName``, the file
-  ``get_forests_filename_ctr_ascii`` names; the 2022 run's ``TreeName``).
+  ``get_forests_filename_ctr_ascii`` names; sage-model's ``TreeName`` run parameter, fixed
+  here at ``tree_0_0_0.dat``).
 
 The command line (``main``) writes output files A to B of N, each under a temporary name
 unique to it, renamed when complete, with a JSON sidecar; it refuses the whole range
@@ -147,14 +147,13 @@ before writing when any output or sidecar exists. ``CTREES-TO-LHALO.md`` documen
 Exit status 0 on success, 2 on a read, parse, consistency or count error (naming the
 file), 3 on a usage error or a refused overwrite.
 
-The 2022 particle mass (``particle_mass_interval``). ``PartMass`` enters only ``Len``
+Particle mass from ``Len`` (``particle_mass_interval``). ``PartMass`` enters only ``Len``
 (line 441), so the masses that reproduce the ``Len`` of a set of written records form an
 interval of doubles, not a point. ``particle_mass_interval`` finds its ends exactly from
 the records' ``Mvir`` and ``Len`` (bisection over double bit patterns, under the sequence
 above: float32 ``Mvir`` times the double ``1.0 / PartMass``, narrowed to float32, rounded
 half away from zero), and ``shortest_decimal`` names the decimal with the fewest
-significant digits inside it (nearest the midpoint among those). ``CTREES-TO-LHALO.md``
-records the value found for the 2022 files.
+significant digits inside it (nearest the midpoint among those).
 
 Order independence. sage-model's sorts are heap sorts over total orders (ids are unique
 within a forest; this module refuses a forest with a repeated id), so the output order is
@@ -254,8 +253,8 @@ EXIT_STATUS_OK = 0
 EXIT_STATUS_DATA = 2
 EXIT_STATUS_USAGE = 3
 INT_MAX = 2**31 - 1
-# The tree file whose first line gives the column map: sage-model's SimulationDir/TreeName
-# (read_tree_consistentrees_ascii.c lines 21-25), tree_0_0_0.dat in the 2022 run.
+# The tree file whose first line gives the column map: sage-model's SimulationDir/TreeName run
+# parameter (read_tree_consistentrees_ascii.c lines 21-25), fixed here at tree_0_0_0.dat.
 HEADER_TREE_FILE = "tree_0_0_0.dat"
 # Forests parsed together in one batch when writing a file (memory, not semantics).
 _FORESTS_PER_BATCH = 4096
@@ -1296,7 +1295,7 @@ def write_lhalo_forests(
 
 
 # --------------------------------------------------------------------------------------
-# The 2022 particle mass
+# Particle mass from Len
 # --------------------------------------------------------------------------------------
 
 # Bit patterns of the smallest positive (subnormal) double and of the largest finite one.

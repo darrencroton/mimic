@@ -963,7 +963,7 @@ class TestTables(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------------------
-# Output files and the command line (slice 2)
+# Output files and the command line
 # --------------------------------------------------------------------------------------
 
 

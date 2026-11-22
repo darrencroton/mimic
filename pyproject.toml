@@ -5,6 +5,9 @@ line-length = 100
 profile = "black"
 line_length = 100
 extend_skip = ["mimic_venv", "sage-code", "output", "benchmarks", "archive", "build"]
+# Never descend into a symlinked directory (a data link, a linked venv, a machine-local
+# checkout of another repository): what isort formats is this repository's own files.
+follow_links = false
 
 # `ruff check` is used as a defect linter only. black and isort own Python
 # formatting (see above); ruff format is not used. Declaring this table stops the

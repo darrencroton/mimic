@@ -14,7 +14,7 @@ This package declares the horizontal HDF5 on-disk record for the mini-Uchuu halo
 
 ## Data provenance
 
-The dataset is not primary data. It was made in November 2026 by `convert/mimic-convert/convert_trees.py` from the `mini-uchuu` L-Halo files, `Uchuu400_Planck_lhalo_binary.0`–`.127`, all 128 files, the same files that `simulations/mini-uchuu/` reads (see [its README](../mini-uchuu/README.md)), using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`. A copy of this dataset obtained before November 2026 is superseded and should be replaced.
+The dataset is not primary data. It was made by `convert/mimic-convert/convert_trees.py` from the `mini-uchuu` L-Halo files, `Uchuu400_Planck_lhalo_binary.0`–`.127`, all 128 files, the same files that `simulations/mini-uchuu/` reads (see [its README](../mini-uchuu/README.md)), using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`.
 
 Converted: 1,451,359,554 halos across 50 snapshots and 25,843,142 forests, with no gapped links (`links_adjacent = 1`). The largest snapshot holds 39,798,251 halos and the largest `HaloRankInForest` is 770,679. The producer validation battery passed, and the dataset occupies 204.0 GB (140.6 B/halo). These figures are the whole simulation's.
 
@@ -22,7 +22,7 @@ Cosmology, box size and particle mass match `simulations/mini-uchuu/simulation_i
 
 ## Regenerating the dataset
 
-The source is the `mini-uchuu` L-Halo set; [the converter manual's mini-Uchuu example](../../convert/mimic-convert/CTREES-TO-LHALO.md#example-the-mini-uchuu-set) makes it from the Consistent-Trees ASCII trees. Point `simulations/mini-uchuu/snapshots` at it, since `ingest` below reads its source through `--source-dir "$S/snapshots"`. `ingest` refuses the superseded 2022 mini-Uchuu files unless `--allow-flyby-signature` is given, and the reissued files need no such override.
+The source is the `mini-uchuu` L-Halo set; [the converter manual's mini-Uchuu example](../../convert/mimic-convert/CTREES-TO-LHALO.md#example-the-mini-uchuu-set) makes it from the Consistent-Trees ASCII trees. Point `simulations/mini-uchuu/snapshots` at it, since `ingest` below reads its source through `--source-dir "$S/snapshots"`. `ingest` refuses L-Halo files carrying the flyby-demotion signature, as earlier mini-Uchuu copies do, unless `--allow-flyby-signature` is given; a dataset converted from them should be remade from the current files.
 
 Run the converter phases in order against the vertical package, emitting to a workdir outside the repository, then install the written snapshot files at the permanent destination. The converter's default `--memory-budget-mb` of 2048 is refused for this inventory (its per-tree inventory term alone is larger), so pass a larger budget on `ingest`; the value is recorded in the workdir and `transpose` reuses it.
 
