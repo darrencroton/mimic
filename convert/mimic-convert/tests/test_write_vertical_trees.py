@@ -9,6 +9,10 @@ records byte for byte. Interruptions are simulated by patched failures: a kill a
 ``.partial`` is written, a kill between a file's rename and its manifest entry, a file
 corrupted between its write and its verification by a patched re-read, a worker pool that
 breaks, and interrupts raised in the parent's wait for its workers or by a real SIGTERM.
+
+The flyby-signature guard (:class:`FlybyGuardTests`) runs on copies of the dataset with
+``MostBoundID`` negated on literal rows of its last slab, snapshot 5, whose
+``FirstHaloInFOFgroup`` is ``[0, 0, 2, 3, 3, 5]`` (rows 1 and 4 are satellites).
 """
 
 import contextlib
@@ -50,7 +54,10 @@ from fixtures import (  # noqa: E402
     assembled_rows,
     convert_one_file_dataset,
     edit_column,
+    negate_most_bound_id,
+    tree_state,
 )
+from flyby_signature import HORIZONTAL_SIGNATURE_COLUMNS  # noqa: E402
 from horizontal_dataset import HorizontalDataset  # noqa: E402
 from vertical import writer  # noqa: E402
 from vertical.assemble import AssembledForest, ForestAssembler  # noqa: E402
@@ -240,6 +247,14 @@ class ConverterCase(unittest.TestCase):
             expected_sha256=None,
             stamp="stamp",
         )
+
+    def assert_only_the_flyby_check_read(self, reads):
+        """With ``HorizontalDataset.read_rows`` and ``iter_columns`` patched to ``reads``: convert
+        read no row, and the only rows read at all were the flyby-signature check's, which runs
+        first by design (FlybyGuardTests)."""
+        self.assertFalse(reads["read_rows"].called)
+        for call in reads["iter_columns"].call_args_list:
+            self.assertEqual(tuple(call.args[1]), HORIZONTAL_SIGNATURE_COLUMNS)
 
     def manifest(self, output=None):
         return json.loads(((output or self.output) / writer.MANIFEST_NAME).read_text())
@@ -497,7 +512,7 @@ class RefusalTests(ConverterCase):
                 code, out, err = self.convert(*extra, **where)
                 self.assertEqual(code, 2, out)
                 self.assertRegex(err, message)
-                self.assertFalse(reads["read_rows"].called or reads["iter_columns"].called)
+                self.assert_only_the_flyby_check_read(reads)
         for option in ("--workers", "--window-rows"):
             with self.subTest(option), refuse as reads:
                 with self.assertRaises(SystemExit) as raised:
@@ -524,6 +539,170 @@ class RefusalTests(ConverterCase):
         self.assertEqual(code, 2)
         self.assertIn("forest 0 has 8 halos, but the plan expects 9", out)
         self.assertFalse(self.path(0).exists())
+
+
+def structure(value):
+    """A JSON value's shape: every mapping's keys and every list's element shapes, no values."""
+    if isinstance(value, dict):
+        return {key: structure(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [structure(item) for item in value]
+    return type(value).__name__
+
+
+OVERRIDE = "--allow-flyby-signature"
+
+#: Known bad: rows 0 and 3 (centrals) and 1 and 4 (satellites) of snapshot 5 negated; count 2.
+BAD_ROWS = [0, 1, 3, 4]
+BAD_COUNT_TEXT = "2 halo(s) in snapshot 5"
+
+
+class FlybyGuardTests(ConverterCase):
+    def setUp(self):
+        super().setUp()
+        self.bad = self.copy("bad", lambda d: negate_most_bound_id(d, 5, BAD_ROWS))
+
+    def copy(self, name, edit):
+        directory = self.work / name
+        shutil.copytree(self.dataset_dir, directory)
+        edit(directory)
+        return directory
+
+    def run_plan(self, dataset, output, *extra):
+        return run(
+            "plan",
+            "--input",
+            dataset,
+            "--halo-properties",
+            SHIN_UCHUU_RECORD,
+            "--output",
+            output,
+            "--max-halos-per-file",
+            8,
+            *extra,
+        )
+
+    def assert_refused(self, code, err, command):
+        self.assertEqual(code, 2, err)
+        self.assertIn("ERROR: ", err)
+        self.assertIn(BAD_COUNT_TEXT, err)
+        self.assertIn("refusing to {} it -- pass {}".format(command, OVERRIDE), err)
+
+    def assert_warned(self, err):
+        self.assertIn("WARNING: ", err)
+        self.assertIn(BAD_COUNT_TEXT, err)
+        self.assertIn("proceeding because {} was given".format(OVERRIDE), err)
+
+    def test_plan_refuses_a_known_bad_dataset_and_writes_nothing(self):
+        with mock.patch.object(write_vertical_trees, "make_file_plan") as make_file_plan:
+            code, out, err = self.run_plan(self.bad, self.output)
+        self.assert_refused(code, err, "plan")
+        self.assertEqual(out, "")
+        self.assertFalse(make_file_plan.called)
+        self.assertFalse(self.output.exists())
+
+    def test_convert_refuses_a_known_bad_dataset_before_taking_its_lock(self):
+        self.assertEqual(self.run_plan(self.bad, self.output, OVERRIDE)[0], 0)
+        before = tree_state(self.output)
+        with mock.patch.object(write_vertical_trees, "convert") as convert:
+            code, out, err = self.convert(dataset=self.bad)
+        self.assert_refused(code, err, "convert")
+        self.assertFalse(convert.called)
+        code, out, err = self.convert(dataset=self.bad)
+        self.assert_refused(code, err, "convert")
+        self.assertEqual(tree_state(self.output), before)
+        self.assertFalse((self.output / ".convert.lock").exists())
+        self.assertFalse((self.output / writer.MANIFEST_NAME).exists())
+
+    def test_the_override_proceeds_warns_and_records_only_the_command_line(self):
+        clean = self.work / "clean"
+        self.assertEqual(self.run_plan(self.dataset_dir, clean)[0], 0)
+        self.assertEqual(self.convert(output=clean)[0], 0)
+
+        code, out, err = self.run_plan(self.bad, self.output, OVERRIDE)
+        self.assertEqual(code, 0, err)
+        self.assert_warned(err)
+        self.assertIn("files: 3", out)
+        self.assertEqual(
+            (self.output / "file_plan.json").read_bytes(), (clean / "file_plan.json").read_bytes()
+        )
+
+        code, out, err = self.convert(OVERRIDE, dataset=self.bad)
+        self.assertEqual(code, 0, err + out)
+        self.assert_warned(err)
+        self.assertEqual(sorted(self.entries()), [0, 1, 2])
+        manifest, reference = self.manifest(), self.manifest(clean)
+        command_line = manifest["runs"][0]["command_line"]
+        self.assertEqual(command_line[:2], ["write_vertical_trees.py", "convert"])
+        self.assertIn(OVERRIDE, command_line)
+        self.assertNotIn(OVERRIDE, reference["runs"][0]["command_line"])
+        # Apart from the command line's one extra word, the manifest has the clean run's form.
+        manifest["runs"][0]["command_line"] = reference["runs"][0]["command_line"] = []
+        self.assertEqual(structure(manifest), structure(reference))
+        self.assertNotIn("flyby", json.dumps(manifest))
+        self.assertNotIn("flyby", (self.output / "file_plan.json").read_text())
+
+        # Per invocation: the next convert without the override is refused again.
+        code, _, err = self.convert(dataset=self.bad)
+        self.assert_refused(code, err, "convert")
+
+    def test_known_good_datasets_are_accepted_unchanged(self):
+        clean = self.work / "clean"
+        self.assertEqual(self.run_plan(self.dataset_dir, clean)[0], 0)
+        cases = {
+            "no negative id": lambda d: None,
+            "negative ids only on the last slab's centrals": lambda d: negate_most_bound_id(
+                d, 5, [0, 2, 3, 5]
+            ),
+            "negative ids on an earlier slab's satellites": lambda d: negate_most_bound_id(
+                d, 4, [1, 5]
+            ),
+        }
+        for number, (name, edit) in enumerate(cases.items()):
+            with self.subTest(name):
+                dataset = self.copy("good_{}".format(number), edit)
+                output = self.work / "good_out_{}".format(number)
+                code, out, err = self.run_plan(dataset, output)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(err, "")
+                self.assertEqual(
+                    (output / "file_plan.json").read_bytes(),
+                    (clean / "file_plan.json").read_bytes(),
+                )
+                code, out, err = self.convert(dataset=dataset, output=output)
+                self.assertEqual(code, 0, err + out)
+                self.assertEqual(err, "")
+                self.assertEqual(sorted(self.entries(output)), [0, 1, 2])
+
+    def test_a_dataset_lacking_a_checked_column_is_refused_with_exit_2(self):
+        for name in HORIZONTAL_SIGNATURE_COLUMNS:
+
+            def edit(directory, name=name):
+                with h5py.File(directory / "snapshot_005.h5", "r+") as handle:
+                    del handle["halos"][name]
+
+            dataset = self.copy("lacking_{}".format(name), edit)
+            for command in ("plan", "convert"):
+                with self.subTest(name, command=command):
+                    output = self.work / "lacking_out_{}_{}".format(name, command)
+                    if command == "plan":
+                        code, _, err = self.run_plan(dataset, output, OVERRIDE)
+                    else:
+                        code, _, err = self.convert(OVERRIDE, dataset=dataset, output=output)
+                    self.assertEqual(code, 2, err)
+                    self.assertIn("no /halos/{} dataset".format(name), err)
+                    self.assertFalse(output.exists())
+
+    def test_the_epilog_names_the_check_its_refusal_and_its_memory(self):
+        epilog = write_vertical_trees.EPILOG
+        self.assertIn("Flyby signature: before anything else, plan and convert", epilog)
+        self.assertIn("a dataset carrying the flyby-demotion signature without", epilog)
+        self.assertIn("lacks the MostBoundID or FirstHaloInFOFgroup the check reads", epilog)
+        self.assertIn(
+            "Memory: the flyby-signature check reads at most 4,194,304 rows of its two columns",
+            epilog,
+        )
+        self.assertIn("at most 32 B per row of them (128 MiB)", epilog)
 
 
 class VerificationTests(ConverterCase):
@@ -709,7 +888,7 @@ class LockTests(ConverterCase):
             fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             with refuse as reads:
                 code, out, err = self.convert()
-            self.assertFalse(reads["read_rows"].called or reads["iter_columns"].called)
+            self.assert_only_the_flyby_check_read(reads)
         self.assertEqual(code, 2)
         self.assertIn(str(lock), err)
         self.assertIn("another convert holds this output directory's lock", err)
@@ -879,7 +1058,7 @@ class PlanStrictnessTests(ConverterCase):
             code, out, err = self.convert()
         self.assertEqual(code, 2, out)
         self.assertRegex(err, r"file entry 1 is malformed")
-        self.assertFalse(reads["read_rows"].called or reads["iter_columns"].called)
+        self.assert_only_the_flyby_check_read(reads)
 
     def test_a_header_value_past_int32_is_refused_before_the_file_is_opened(self):
         partial = self.work / "trees.0.partial"

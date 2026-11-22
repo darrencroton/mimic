@@ -14,9 +14,12 @@ vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the hori
     or non-finite; no leak is reported
   - test_implicit_scheme: the same under scheme: implicit, with all five keys set
   - test_dynamic_timestepping: the same under TimestepScheme: dynamic
-  - test_stiff_rates: the same fixtures with their rate coefficients scaled by 1e3 under the
-    explicit scheme: RunProperties/RateIntegration records rejected steps and a largest K_max
-    above the positivity cap, and every fixture output value is finite and not negative
+  - test_stiff_rates: the same fixtures run once at unscaled rates under the explicit scheme to
+    read their largest K_max, k0, then with their rate coefficients scaled by
+    max(STIFF_FACTOR, STIFF_TARGET * cap / k0) (K_max is linear in the scale, so the scaled
+    run's K_max is near STIFF_TARGET times the cap on any fixture):
+    RunProperties/RateIntegration records rejected steps and a largest K_max above the
+    positivity cap, and every fixture output value is finite and not negative
   - test_created_records_join: with test_fixture creating records in pre_timestep, the run
     completes and every created row's fixture values are finite and non-negative (that a created
     record joins its component at zero content is shown by tests/unit/test_rate_dispatch.c)
@@ -31,11 +34,15 @@ vertical driver; MODEL=halos-only SIMULATION=mini-millennium-horizontal the hori
     true gives Galaxies datasets byte-identical to the same run with it false, under both schemes
   - check_purity with any value but true or false is refused at startup (in
     test_run_file_section_refusals)
-  - test_lossless_jump_records_no_change: test_rate_jump merging satellites without loss in a
-    discrete phase after the rate phase completes, merges some satellites, and the master file's
-    RunProperties/RateIntegration/DeclaredDiscreteChanges counts are zero for both totals
-  - test_lossy_jump_is_counted: the same with a declared loss completes, and both totals'
-    declared-change counts are non-zero
+  - test_lossless_jump_records_no_change: test_fixture creating an orphan (a Type 2 record
+    holding fixture mass) on every Type 0 host in pre_timestep, the rate phase, and
+    test_rate_jump merging satellites without loss in a discrete phase after it: the run
+    completes, merges some satellites, and the jump's declared changes (the master file's
+    RunProperties/RateIntegration/DeclaredDiscreteChanges counts less those of the same run
+    without the jump phase, which subtracts the created records' own declared changes) are
+    zero for both totals
+  - test_lossy_jump_is_counted: the same with a declared loss completes, merges some
+    satellites, and each total's jump-declared changes are above zero and at most the merges
   - test_undeclared_change_is_fatal: test_rate_faults in its full-halo mode, adding mass in a
     discrete phase without declaring it, ends the run naming the phase, the module and the total
   - test_undeclared_change_beside_a_declaring_module: test_rate_jump (declaring both totals) and
@@ -86,6 +93,12 @@ from framework.rate_fixture import (  # noqa: E402
 # stays near 1e-5. test_stiff_rates scales the rates up to reach the cap.
 RATE_FIXTURES, RATE_PARAMS = load_rate_fixture()
 
+# test_stiff_rates aims the scaled run's largest K_max at this multiple of the positivity cap
+# (about 18). K_max is linear in the coefficient scale, so the factor is read off an unscaled run
+# of the same fixtures; it is never below STIFF_FACTOR, so no fixture runs less stiff than at a
+# fixed 1e3.
+STIFF_TARGET = 10.0
+
 RESERVOIR_FIELDS = (
     "RateFixtureHot",
     "RateFixtureCold",
@@ -113,6 +126,11 @@ JUMP_PHASE = "jumps"
 JUMP_THRESHOLD = 1.0e-9
 JUMP_MERGES = re.compile(r"Test rate jump fixture: (\d+) satellite\(s\) merged")
 FIXTURE_TOTALS = ("rate_fixture_mass", "rate_fixture_tracer")
+
+# The jump tests' orphans: test_fixture in pre_timestep gives every Type 0 host a created Type 2
+# record holding this fixture mass in its hot and cold reservoirs, from which the rate phase forms
+# stars before the jump runs, so the jump has satellites to merge on any package's fixture.
+CREATED_CONTENT = 1.0e-3
 
 _temp_dirs = []
 
@@ -358,25 +376,46 @@ def test_dynamic_timestepping():
 
 
 def test_stiff_rates():
-    """Rate coefficients scaled by 1e3 drive the explicit scheme to its positivity cap.
+    """Scaled rate coefficients drive the explicit scheme to its positivity cap on any fixture.
 
-    The scaling is an explicit override of the run file's parameters. With the default rates no
-    segment's largest K_max comes within a factor of 100 of the cap, so the cap, the retry rule
-    and repeated rejections never run through dispatch; here the master file's
+    The fixtures first run once at unscaled rates, with the same parameters and the same
+    rate_integration section, to read their largest K_max, k0. K_max is linear in the
+    coefficient scale, so scaling by max(STIFF_FACTOR, STIFF_TARGET * POSITIVITY_CAP / k0) puts
+    the scaled run's largest K_max at max(STIFF_FACTOR * k0, STIFF_TARGET * POSITIVITY_CAP),
+    near STIFF_TARGET times the cap whatever k0 the package's fixture gives, where a fixed
+    STIFF_FACTOR falls short of the cap on a fixture whose k0 is below POSITIVITY_CAP /
+    STIFF_FACTOR. The scaling is an explicit override of the run file's parameters. With the
+    default rates no segment's largest K_max comes within a factor of 100 of the cap, so the cap,
+    the retry rule and repeated rejections never run through dispatch; here the master file's
     RunProperties/RateIntegration must record rejected steps and a largest K_max above the cap,
     and every fixture output value must still be finite and not negative, with each fixture
     property non-zero on some row.
     """
-    stiff = scale_coefficients(RATE_PARAMS, STIFF_FACTOR)
+    section = {"scheme": "explicit"}
+    returncode, log, output_dir = _run(
+        "stiff_unscaled", _rate_phase(), model_params=RATE_PARAMS, rate_integration=section
+    )
+    _assert_completed(returncode, log, "stiff: the unscaled run that reads k0")
+    _, k0 = read_step_extremes(Path(output_dir) / "model.hdf5")
+    assert math.isfinite(k0) and k0 > 0.0, (
+        f"stiff: the unscaled run's largest K_max {k0!r} is not positive and finite, so no scale "
+        "can be derived from it"
+    )
+    factor = max(STIFF_FACTOR, STIFF_TARGET * POSITIVITY_CAP / k0)
+    stiff = scale_coefficients(RATE_PARAMS, factor)
     assert stiff != RATE_PARAMS, "the override scaled no parameter"
     returncode, log, output_dir = _run(
         "stiff",
         _rate_phase(),
         model_params=stiff,
-        rate_integration={"scheme": "explicit"},
+        rate_integration=section,
     )
     _assert_completed(returncode, log, "stiff")
     rejected, k_max = read_step_extremes(Path(output_dir) / "model.hdf5")
+    print(
+        f"  k0 {k0:.6g}, factor {factor:.6g}, scaled largest K_max {k_max:.6g} "
+        f"({rejected} rejected step(s))"
+    )
     assert rejected > 0, "no step was rejected, so the retry rule never ran"
     assert (
         k_max > POSITIVITY_CAP
@@ -578,29 +617,130 @@ def _merges(log):
     return sum(int(count) for count in found)
 
 
-def test_lossless_jump_records_no_change():
-    """Merging satellites without loss completes, and the ledger records no change."""
-    phase_config = {**_rate_phase(), JUMP_PHASE: [(JUMP_MODULE, "process_full_halo")]}
-    returncode, log, output_dir = _run(
-        "jump_lossless", phase_config, model_params=_jump_params(0.0)
+def _created_jump_phases(jump):
+    """The jump tests' phases: test_fixture creating orphans in pre_timestep, the rate phase and,
+    when jump is true, test_rate_jump in a discrete phase after it."""
+    phases = {"pre_timestep": [("test_fixture", "process_full_halo")], **_rate_phase()}
+    if jump:
+        phases[JUMP_PHASE] = [(JUMP_MODULE, "process_full_halo")]
+    return phases
+
+
+def _created_jump_params(loss=None):
+    """The jump tests' parameters: the rate fixtures', test_fixture creating one record holding
+    CREATED_CONTENT per Type 0 host (as test_created_records_join sets it, with that content)
+    and, when loss is given, test_rate_jump's two keys."""
+    params = dict(RATE_PARAMS)
+    params.update(
+        {
+            "TestFixtureDummyParameter": 0.25,
+            "TestFixtureEnableLogging": 0,
+            "TestFixtureCreateRecords": 1,
+            "TestFixtureCreatedContent": CREATED_CONTENT,
+        }
     )
-    _assert_completed(returncode, log, "lossless jump")
-    assert _merges(log) > 0, "test_rate_jump merged no satellite, so nothing was exercised"
-    changes = _declared_changes(output_dir)
-    assert set(changes) == set(FIXTURE_TOTALS), f"declared-change totals {sorted(changes)}"
-    assert all(count == 0 for count in changes.values()), f"lossless merges counted: {changes}"
+    if loss is not None:
+        params.update(
+            {"TestRateJumpStarsThreshold": JUMP_THRESHOLD, "TestRateJumpLossFraction": loss}
+        )
+    return params
+
+
+# The jump tests' shared baseline: {total: declared-change count}, filled on first use.
+_created_baseline = {}
+
+
+def _created_baseline_changes():
+    """The declared-change counts of the jump tests' configuration without the jump phase.
+
+    The baseline is the same phases and parameters minus the jump phase and its two keys, run
+    under its own name; both jump tests share it, computed once by whichever runs first, so
+    test order does not matter. It must complete with readable counts for exactly the fixture
+    totals. Its output's created rows' smallest and largest RateFixtureStars are printed
+    against JUMP_THRESHOLD.
+    """
+    if not _created_baseline:
+        returncode, log, output_dir = _run(
+            "jump_created_baseline",
+            _created_jump_phases(jump=False),
+            model_params=_created_jump_params(),
+        )
+        _assert_completed(returncode, log, "jump baseline (no jump phase)")
+        try:
+            changes = _declared_changes(output_dir)
+        except (OSError, KeyError) as error:
+            raise AssertionError(
+                f"jump baseline: its declared-change counts are not readable ({error!r})"
+            ) from error
+        assert set(changes) == set(
+            FIXTURE_TOTALS
+        ), f"jump baseline: declared-change totals {sorted(changes)}"
+        galaxies = _galaxies(output_dir)
+        stars = np.asarray(
+            galaxies["RateFixtureStars"][galaxies["UniqueGalaxyID"] < 0], dtype=np.float64
+        )
+        if len(stars):
+            print(
+                f"  baseline: {len(stars)} created row(s), RateFixtureStars "
+                f"{stars.min():.6g} to {stars.max():.6g} (threshold {JUMP_THRESHOLD:g})"
+            )
+        else:
+            print("  baseline: no created row in the output")
+        print(f"  baseline declared changes: {changes}")
+        _created_baseline.update(changes)
+    return dict(_created_baseline)
+
+
+def _created_jump_run(name, loss):
+    """Run the jump tests' configuration with the jump phase at loss; return (merges, the
+    measured declared-change counts, the baseline's)."""
+    returncode, log, output_dir = _run(
+        name, _created_jump_phases(jump=True), model_params=_created_jump_params(loss)
+    )
+    _assert_completed(returncode, log, name)
+    merges = _merges(log)
+    measured = _declared_changes(output_dir)
+    assert set(measured) == set(FIXTURE_TOTALS), f"declared-change totals {sorted(measured)}"
+    baseline = _created_baseline_changes()
+    print(f"  {name}: {merges} merge(s), declared changes {measured}")
+    return merges, measured, baseline
+
+
+def test_lossless_jump_records_no_change():
+    """Merging created orphans without loss completes, and the jump declares no change.
+
+    test_fixture in pre_timestep gives every Type 0 host an orphan (a created Type 2 record
+    holding CREATED_CONTENT), from which the rate phase forms stars, and test_rate_jump merges
+    those above JUMP_THRESHOLD in a discrete phase after the rate phase. The creation itself
+    declares changes to rate_fixture_mass, so the master file's DeclaredDiscreteChanges counts
+    are compared with the shared baseline, the same run without the jump phase: the measured
+    count less the baseline's is the jump's own, and it must be zero for both totals.
+    """
+    merges, measured, baseline = _created_jump_run("jump_created_lossless", 0.0)
+    assert merges > 0, "test_rate_jump merged no satellite, so nothing was exercised"
+    jump = {total: measured[total] - baseline[total] for total in FIXTURE_TOTALS}
+    assert all(
+        count == 0 for count in jump.values()
+    ), f"lossless merges counted: {jump} (measured {measured}, baseline {baseline})"
 
 
 def test_lossy_jump_is_counted():
-    """A declared loss completes, and every total's declared-change count is non-zero."""
-    phase_config = {**_rate_phase(), JUMP_PHASE: [(JUMP_MODULE, "process_full_halo")]}
-    returncode, log, output_dir = _run("jump_lossy", phase_config, model_params=_jump_params(0.25))
-    _assert_completed(returncode, log, "lossy jump")
-    merges = _merges(log)
-    changes = _declared_changes(output_dir)
-    assert set(changes) == set(FIXTURE_TOTALS), f"declared-change totals {sorted(changes)}"
-    for total, count in changes.items():
-        assert 0 < count <= merges, f"{total}: {count} declared change(s) for {merges} merge(s)"
+    """Merging created orphans with a declared loss completes, and the jump's changes count.
+
+    The configuration and the shared baseline are test_lossless_jump_records_no_change's, with
+    the loss fraction 0.25; the baseline subtracts the created records' own declared changes.
+    Each total's jump-declared changes must be above zero and at most the merges, since a
+    declared change is counted per dispatch unit (one full-halo call merges one or more
+    satellites).
+    """
+    merges, measured, baseline = _created_jump_run("jump_created_lossy", 0.25)
+    assert merges > 0, "test_rate_jump merged no satellite, so nothing was exercised"
+    for total in FIXTURE_TOTALS:
+        count = measured[total] - baseline[total]
+        assert 0 < count <= merges, (
+            f"{total}: {count} jump-declared change(s) ({measured[total]} measured, "
+            f"{baseline[total]} baseline) for {merges} merge(s)"
+        )
 
 
 def test_undeclared_change_is_fatal():

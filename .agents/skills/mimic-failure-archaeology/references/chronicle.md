@@ -121,6 +121,8 @@ Tags marking era boundaries: `v0.1-beta`, `v0.5`, `v0.9-pre-release`, `v1.0` (da
 
 **Status.** `fix_flybys()` has been deleted from the C reader and the Python converter (no runtime switch); the horizontal format bumped to `format_version = 2` with v1 rejected outright. A standalone corrupt-input guard, `verify_fof_centrals_present()`, replaces the one genuine contract `fix_flybys` also carried (a forest's final snapshot must have at least one FoF central). The affected production dataset (Shin-Uchuu v1) was void and has been re-converted to version 2. Verification after the fix: `micro-uchuu-ascii` Type-0 496,374, total 557,519, zero negative `MostBoundID`. Do not reintroduce the demotion, with or without a switch, without a fresh plan-level decision; see the `mimic-simulations-and-readers` skill.
 
+**Addendum — the upstream form of the defect.** The same defect was found upstream, in the 2022 mini-Uchuu L-Halo files, which sage-model's `convert_trees_to_lhalo` wrote with its own `fix_flybys` active: demoted FoF centrals with a negated `MostBoundID` at the last snapshot. The `mini-uchuu-horizontal` dataset converted from those files carried it too, and no gate saw it, because each compared two readings of the same data. The files were regenerated with `convert/mimic-convert/ctrees_to_lhalo.py`, the converter now refuses such a source unless `--allow-flyby-signature` is given, and the Uchuu suite's single particle mass 0.0327 is used throughout. Lesson: a parity gate cannot see a defect in the data itself.
+
 ## Incident 10 — Deliberate retirements (not failures)
 
 These were removed on purpose after the design moved on. Restoring them is regression, not recovery.

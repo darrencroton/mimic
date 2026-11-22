@@ -11,7 +11,10 @@ predecessor is complete:
 1. :func:`run_ingest` streams the source adapter's canonical batches into
    ``ingest/chunk_NNNNNN.bin`` -- flat little-endian records of
    :func:`ingest_dtype`, one file per batch -- each written under a temporary
-   name, fsynced, renamed, re-read and registered with its SHA-256.
+   name, fsynced, renamed, re-read and registered with its SHA-256. Before
+   an attempt begins, an L-Halo source is pre-scanned for the flyby-demotion
+   signature and refused unless the call allows it (``flyby_signature``);
+   the stage result records what the scan found.
 2. :func:`run_transpose` feeds those chunks, checksum-verified as they are
    read, to ``transpose.transpose`` and registers every per-snapshot output.
 3. :func:`run_write` hands the verified transposed snapshots to a
@@ -101,11 +104,13 @@ import hashlib
 import json
 import os
 import re
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
+import flyby_signature
 import numpy as np
 import transpose as transpose_module
 from adapters.base import LINK_FIELDS, CanonicalBatch, SourceAdapter, require_integer
@@ -1009,18 +1014,90 @@ def _write_chunk(path: Path, records: np.ndarray) -> None:
     os.replace(partial, path)
 
 
+#: The one source format the flyby-signature guard reads; the Consistent-Trees
+#: routes' ``id`` is never negated by Mimic, so they record "not checked".
+_FLYBY_FORMAT = "lhalo_binary"
+_FLYBY_OVERRIDE = "--allow-flyby-signature"
+
+
+def _refuse_foreign_flyby_override(manifest: ConversionManifest, allow: bool) -> None:
+    """The override is an L-Halo option: given for any other recorded source
+    format it is refused rather than ignored. Read-only."""
+    source_format = manifest.configuration["adapter"]["source_format"]
+    if allow and source_format != _FLYBY_FORMAT:
+        raise ConverterError(
+            "{}: {} applies to --source-format {} only, but this conversion is recorded as "
+            "{}; refusing rather than ignoring it".format(
+                manifest.path, _FLYBY_OVERRIDE, _FLYBY_FORMAT, source_format
+            )
+        )
+
+
+def _flyby_guard(manifest: ConversionManifest, adapter, allow: bool) -> Dict[str, object]:
+    """Run the flyby-signature pre-scan for an L-Halo source and refuse a
+    source carrying the signature unless ``allow``; return the ingest stage
+    result's ``flyby_signature`` entry. Read-only: a refusal leaves the
+    workdir exactly as it was. See ``flyby_signature``'s module docstring."""
+    adapter_config = manifest.configuration["adapter"]
+    source_format = adapter_config["source_format"]
+    if source_format != _FLYBY_FORMAT:
+        return flyby_signature.unchecked_record(source_format)
+    scan = flyby_signature.prescan_lhalo(
+        adapter_config["parameters"]["sources"],
+        adapter.layout,
+        adapter.schema,
+        _max_snapshot(manifest),
+    )
+    if scan.halos:
+        found = (
+            "the source carries the flyby-demotion signature: {} halo(s) in {} tree(s) have a "
+            "negative MostBoundID, are not their own FoF central and lie at their tree's last "
+            "snapshot (first in source file ordinal {}, {})".format(
+                scan.halos, scan.trees, scan.first_file_ordinal, scan.first_file_path
+            )
+        )
+        if not allow:
+            raise ConverterError(
+                "{}: {}; refusing to ingest it -- pass {} to convert it anyway (the acceptance "
+                "is recorded in the ingest stage result)".format(
+                    manifest.path, found, _FLYBY_OVERRIDE
+                )
+            )
+        print(
+            "WARNING: {}; proceeding because {} was given".format(found, _FLYBY_OVERRIDE),
+            file=sys.stderr,
+        )
+    return scan.record(allow)
+
+
 def run_ingest(
     workdir,
     *,
     schema: Optional[CanonicalSchema] = None,
     save_every_chunks: int = DEFAULT_SAVE_EVERY_CHUNKS,
+    allow_flyby_signature: bool = False,
 ) -> ConversionManifest:
     """Stream the source into verified canonical chunks, resuming from the
-    last registered chunk. See the module docstring."""
+    last registered chunk. See the module docstring.
+
+    **Flyby-signature guard.** Before an attempt begins, an L-Halo source is
+    pre-scanned for the flyby-demotion signature (``flyby_signature``); a
+    non-zero count is refused unless ``allow_flyby_signature``, in which case
+    a warning is printed on stderr and the acceptance is recorded. The
+    override belongs to this call only: it is not part of the recorded
+    configuration, so resuming an interrupted ingest must pass it again. A
+    complete stage is skipped without a re-scan, and the override given for a
+    non-L-Halo conversion is refused, before the skip.
+    """
     save_every_chunks = require_integer(
         save_every_chunks, "save_every_chunks", _RECORDED, minimum=1
     )
+    if not isinstance(allow_flyby_signature, bool):
+        raise ConverterError(
+            "allow_flyby_signature must be a bool, got {!r}".format(allow_flyby_signature)
+        )
     manifest = _open_for_stage(workdir, schema)
+    _refuse_foreign_flyby_override(manifest, allow_flyby_signature)
     if _skip_if_complete(manifest, "ingest"):
         return manifest
 
@@ -1033,6 +1110,7 @@ def run_ingest(
             source_format, manifest.schema, adapter_config["parameters"], _max_snapshot(manifest)
         )
         _bind_adapter(manifest, adapter)
+    flyby = _flyby_guard(manifest, adapter, allow_flyby_signature)
     registered = list(manifest.stage("ingest")["artifacts"])
     for relpath in registered:
         manifest.verify_artifact(relpath, "ingest chunk")
@@ -1053,7 +1131,9 @@ def run_ingest(
             )
             _bind_adapter(manifest, adapter)
             manifest.save()
-        attempt.result = _stream_chunks(manifest, adapter, registered, save_every_chunks)
+        result = _stream_chunks(manifest, adapter, registered, save_every_chunks)
+        result["flyby_signature"] = flyby
+        attempt.result = result
     return manifest
 
 

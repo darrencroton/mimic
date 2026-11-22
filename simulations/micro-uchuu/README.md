@@ -11,7 +11,7 @@ This package runs Mimic against the micro-Uchuu merger trees in L-Halo binary fo
 
 **Data files required in `snapshots/`:**
 
-Four binary files (~2.2 GB total), converted from the Consistent-Trees ASCII trees by sage-model:
+Four binary files (~2.2 GB total), converted from the Consistent-Trees ASCII trees by sage-model, with `Len` set at the particle mass 0.0327 by `convert/mimic-convert/lhalo_len.py` in November 2026 and no other field changed; copies obtained before November 2026 carry a different `Len` and should be replaced or rewritten with that tool:
 ```text
 Uchuu100_Planck_lhalo_binary.0
 Uchuu100_Planck_lhalo_binary.1

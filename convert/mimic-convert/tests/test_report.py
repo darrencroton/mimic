@@ -8,6 +8,8 @@ against the battery's own arithmetic. The identity multiplier arithmetic the
 report states is covered by ``test_hdf5_writer_v3.TestIdentityMultiplier``.
 """
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -22,12 +24,16 @@ import h5py
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import fixtures  # noqa: E402
+import pipeline  # noqa: E402
 import report  # noqa: E402
 import runtime_routes  # noqa: E402
 from column_schema import ConverterError  # noqa: E402
+from conversion_manifest import ConversionManifest  # noqa: E402
 from fixtures import (  # noqa: E402
     make_v3_conversion,
 )
+from hdf5_writer_v3 import HorizontalV3Writer  # noqa: E402
 from report import REPORT_JSON, REPORT_TXT, run_report_v3  # noqa: E402
 from validate_v3 import run_battery_v3  # noqa: E402
 
@@ -133,6 +139,102 @@ class TestV3Report(unittest.TestCase):
         self.assertTrue(self.report["validation_passed"])
         self.assertEqual(len(self.report["validation"]), 20)
         self.assertEqual({o["status"] for o in self.report["validation"]}, {"PASS"})
+
+    def test_report_carries_a_clean_flyby_signature_check(self):
+        self.assertEqual(
+            self.report["source"]["flyby_signature"],
+            {"checked": True, "halos": 0, "trees": 0, "allowed": False},
+        )
+        text = (self.conv.work / REPORT_TXT).read_text()
+        self.assertIn("\nflyby signature: checked, none found\n", text)
+        self.assertNotIn("FLYBY-DEMOTION SIGNATURE", text)
+
+
+#: A tree carrying the flyby-demotion signature: rows 1 and 2 are satellites
+#: of row 0 at the tree's last snapshot with negative MostBoundID (count 2).
+_SIGNATURE_TREE = [
+    dict(SnapNum=3, FirstHaloInFOFgroup=0, NextHaloInFOFgroup=1, MostBoundID=21),
+    dict(SnapNum=3, FirstHaloInFOFgroup=0, NextHaloInFOFgroup=2, MostBoundID=-22),
+    dict(SnapNum=3, FirstHaloInFOFgroup=0, MostBoundID=-23),
+]
+
+
+class TestFlybySignatureReport(unittest.TestCase):
+    """Every state of the ingest stage's ``flyby_signature`` entry, rendered
+    from real workdirs (the Consistent-Trees state from real workdirs is in
+    ``test_cli.StageChainTests``) and, for each state, by the renderer."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="v3_report_flyby_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_an_allowed_signature_is_reported_under_a_heading_with_its_counts(self):
+        src = self.tmp / "src"
+        src.mkdir()
+        file0 = fixtures.write_lhalo_file(
+            str(src / "trees.0"), [fixtures.LITERAL_TREE_A, _SIGNATURE_TREE]
+        )
+        file1 = fixtures.write_lhalo_file(str(src / "trees.1"), [_SIGNATURE_TREE])
+        a_list = src / "a.list"
+        a_list.write_text(fixtures.LITERAL_A_LIST_TEXT)
+        sim_info = fixtures.write_simulation_info(src / "simulation_info.yaml")
+        work = self.tmp / "work"
+        pipeline.initialize(
+            work,
+            fixtures.lhalo_schema(),
+            {"sources": [[0, file0], [1, file1]]},
+            a_list,
+            ingest_max_rows=3,
+            transpose_budget_bytes=fixtures.LITERAL_BUDGET,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            pipeline.run_ingest(work, allow_flyby_signature=True)
+        pipeline.run_transpose(work)
+        pipeline.run_write(work, HorizontalV3Writer(sim_info, block_rows=2))
+        report_v3 = run_report_v3(work, a_list, budget_bytes=BUDGET)
+        self.assertEqual(
+            report_v3["source"]["flyby_signature"],
+            {"checked": True, "halos": 4, "trees": 2, "allowed": True},
+        )
+        text = (work / REPORT_TXT).read_text()
+        self.assertIn(
+            "\nTHE SOURCE CARRIES THE FLYBY-DEMOTION SIGNATURE\n"
+            "  flyby signature: 4 halo(s) in 2 tree(s) have a negative MostBoundID, are not their "
+            "own FoF central and lie at their tree's last snapshot\n"
+            "  allowed: converted because --allow-flyby-signature was given\n",
+            text,
+        )
+        self.assertNotIn("none found", text)
+
+    def test_a_manifest_without_the_entry_is_reported_as_not_checked(self):
+        """A workdir ingested before the check carries no entry: the report
+        says "not checked", never zero."""
+        conv = make_v3_conversion(self.tmp)
+        manifest = ConversionManifest.load(conv.work)
+        del manifest.stage("ingest")["result"]["flyby_signature"]
+        manifest.save()
+        report_v3 = run_report_v3(conv.work, conv.a_list, budget_bytes=BUDGET)
+        self.assertIn("flyby_signature", report_v3["source"])
+        self.assertIsNone(report_v3["source"]["flyby_signature"])
+        text = (conv.work / REPORT_TXT).read_text()
+        self.assertIn("\nflyby signature: not checked\n", text)
+        self.assertNotIn("none found", text)
+
+    def test_the_renderer_gives_one_line_for_each_state(self):
+        lines = report._flyby_signature_lines
+        self.assertEqual(lines(None), ["flyby signature: not checked"])
+        self.assertEqual(
+            lines({"checked": False, "reason": "source format consistent_trees_hdf5"}),
+            ["flyby signature: not checked (source format consistent_trees_hdf5)"],
+        )
+        self.assertEqual(
+            lines({"checked": True, "halos": 0, "trees": 0, "allowed": False}),
+            ["flyby signature: checked, none found"],
+        )
+        found = lines({"checked": True, "halos": 7, "trees": 3, "allowed": False})
+        self.assertEqual(found[1], "THE SOURCE CARRIES THE FLYBY-DEMOTION SIGNATURE")
+        self.assertIn("7 halo(s) in 3 tree(s)", found[2])
+        self.assertEqual(found[3], "  allowed: no")
 
 
 class TestV3WidthLimitation(unittest.TestCase):
