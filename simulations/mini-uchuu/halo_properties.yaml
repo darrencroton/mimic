@@ -2,7 +2,9 @@
 #
 # Complete on-disk halo catalog record in file order, for the L-Halo binary
 # files made in November 2026 from the public Uchuu Consistent-Trees catalogues
-# by convert/mimic-convert/ctrees_to_lhalo.py, with Len at the particle mass 0.0327.
+# by convert/mimic-convert/ctrees_to_lhalo.py, with Len then set at the particle
+# mass 0.0327 by convert/mimic-convert/lhalo_len.py; files obtained before
+# November 2026 are superseded and should be replaced.
 # The 26-field struct layout is byte-identical to micro-uchuu and
 # mini-Millennium; only cosmology, box size, and position range differ.
 #
