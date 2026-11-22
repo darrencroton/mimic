@@ -14,7 +14,7 @@ This package declares the horizontal HDF5 on-disk record for the micro-Uchuu hal
 
 ## Data provenance
 
-The dataset is not primary data. It was produced offline by `convert/mimic-convert/convert_trees.py` at converter commit `4c9518d3e7ad8c942b95155a5e37ebbb4ff4131b` from the same `Uchuu100_Planck_lhalo_binary.0`–`.3` files that `simulations/micro-uchuu/` reads, using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`.
+The dataset is not primary data. It was made in November 2026 by `convert/mimic-convert/convert_trees.py` from the reissued `micro-uchuu` L-Halo files, the same `Uchuu100_Planck_lhalo_binary.0`–`.3` files that `simulations/micro-uchuu/` reads, using that package's converter profile (`column_mapping_sha256 5a74a2e07eca5f3a5fef5e02b75e15c821f94370606d7608b25f082f9f5654b1`). Links, offsets and remapping keys are carried at native converter precision (int64); payload fields keep their native L-Halo binary storage type and units, in particular `M_Crit200` as float32 in `1e10 Msun/h`. A copy of this dataset obtained before November 2026 is superseded and should be replaced.
 
 Converted: 22,580,924 halos across 50 snapshots and 440,651 forests, with no gapped links (`links_adjacent = 1`). The producer validation battery (`convert/mimic-convert/convert_trees.py validate`) passed.
 
@@ -70,7 +70,7 @@ make MODEL=halos-only SIMULATION=micro-uchuu-horizontal
 make MODEL=halos-only SIMULATION=micro-uchuu-horizontal tests-scientific
 ```
 
-The recorded gate of 2026-09-29 passed: 4,409,643 galaxies over output snapshots 7, 8, 10, 12, 16, 23, 28 and 49, bitwise identical per `UniqueGalaxyID` in all 20 fields with no tolerance, under fixed and dynamic timesteps, on the complete L-Halo files 0–3. It is `halos-only` evidence for this route against its own source format only: no identity with any other micro-Uchuu, Millennium or Uchuu packaging is claimed, and no `sage16` parity is claimed.
+The recorded gate of 2026-11-22 passed: on the complete L-Halo files 0–3, 4,409,643 galaxies over output snapshots 7, 8, 10, 12, 16, 23, 28 and 49, bitwise identical per `UniqueGalaxyID` in all 20 fields with no tolerance, under fixed and dynamic timesteps. It is `halos-only` evidence for this route against its own source format only: no identity with any other micro-Uchuu, Millennium or Uchuu packaging is claimed, and no `sage16` parity is claimed.
 
 ## Related packages
 

@@ -1,6 +1,6 @@
 # mini-Uchuu Simulation Package — L-Halo Binary
 
-This package runs Mimic against the mini-Uchuu merger trees in L-Halo binary format (`lhalo_binary` reader). mini-Uchuu is the intermediate-box tier of the Uchuu suite: 400 Mpc/h box, same particle mass and cosmology as micro-Uchuu, ~33.5 million forests.
+This package runs Mimic against the mini-Uchuu merger trees in L-Halo binary format (`lhalo_binary` reader). mini-Uchuu is the intermediate-box tier of the Uchuu suite: 400 Mpc/h box, same particle mass and cosmology as micro-Uchuu, 25,843,142 forests.
 
 - `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: 26-field L-Halo struct, identical layout to `simulations/micro-uchuu/` and `simulations/mini-millennium/` (only cosmology, box size, and position range differ)
@@ -11,7 +11,7 @@ This package runs Mimic against the mini-Uchuu merger trees in L-Halo binary for
 
 **Data files required in `snapshots/`:**
 
-128 binary files (~151 GB total), converted from the Consistent-Trees ASCII trees by sage-model:
+128 binary files (151.0 GB total), made in November 2026 from the public Uchuu Consistent-Trees catalogues by `convert/mimic-convert/ctrees_to_lhalo.py`, with `Len` then set at the particle mass 0.0327 by `convert/mimic-convert/lhalo_len.py`; on the files compared, the result is byte-identical to running `ctrees_to_lhalo.py --particle-mass 0.0327`. Files obtained before November 2026 are superseded and should be replaced:
 ```text
 Uchuu400_Planck_lhalo_binary.0
 Uchuu400_Planck_lhalo_binary.1
