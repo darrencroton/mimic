@@ -32,6 +32,7 @@ This release reissues the mini-Uchuu and micro-Uchuu data and adds the converter
 
 ### Developer-facing changes
 
+- **`CITATION.cff` says how to cite Mimic**, which GitHub shows as *Cite this repository*.
 - **`scripts/benchmark_matrix.py` runs `scripts/benchmark_mimic.sh` over model × simulation × output mode × MPI rank count**, one run at a time, and writes one summary table per invocation under `benchmarks/` (see "Benchmarking" in `docs/DEVELOPER-GUIDE.md`). `benchmark_mimic.sh` keeps the timed run's log beside its JSON, and `BENCHMARK_DIR` sets where both go.
 - **`campaign-policy.json` protects `sage16`'s physics, not the whole package:** its run files, property file, shared headers, tools, tests, module C sources and module data stay protected, and a module's `module_info.yaml` and README, the package README and the plots may be changed by a campaign.
 - **`module_system_refuse_unread_parameters()` (`src/core/module_registry.h`) enforces principle 7 of `docs/VISION.md` for `modules.parameters`.** `main()` calls it once every configured module's `init()` has run; every lookup (`model_get_*()` and `model_has_param()`) records the entry it reaches. Tests that call `module_system_init()` directly do not run the check. Test run files were trimmed to the keys their configured modules read (the rate-phase fault and undeclared-change runs and three `sage26` integration tests), and `scripts/fuzz_pipeline.py` gives each generated pipeline only the parameters its modules declare.

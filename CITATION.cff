@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use Mimic in your research, please cite it as below, together with the papers of the model package you use (each package's README lists them)."
+title: "Mimic"
+type: software
+authors:
+  - family-names: Croton
+    given-names: Darren
+    orcid: "https://orcid.org/0000-0002-5009-512X"
+abstract: "Mimic is a physics-agnostic galaxy evolution framework. Its core owns merger-tree processing, memory, input and output, validation and output provenance; the physics lives in model packages of runtime modules, and each merger-tree catalogue in a simulation package."
+repository-code: "https://github.com/darrencroton/mimic"
+license: MIT
+keywords:
+  - galaxy formation
+  - galaxy evolution
+  - semi-analytic model
+  - merger trees

@@ -80,7 +80,7 @@ Useful entry points along the way:
 
 ## Citation
 
-Cite the references for the model package you use in your research — each package's README lists them. For the default `sage16` package, that is:
+Cite Mimic as given in [`CITATION.cff`](CITATION.cff) (GitHub's *Cite this repository*), and cite the references for the model package you use in your research — each package's README lists them. For the default `sage16` package, that is:
 
 - Croton et al. 2016, [Semi-Analytic Galaxy Evolution (SAGE): Model Calibration and Basic Results](http://arxiv.org/abs/1601.04709), ApJS, 222, 22
 
