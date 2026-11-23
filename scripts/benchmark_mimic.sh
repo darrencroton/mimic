@@ -37,6 +37,7 @@ set -e  # Exit on any error
 # Configuration
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BENCHMARK_RESULTS="baseline_${TIMESTAMP}.json"
+BENCHMARK_LOG="baseline_${TIMESTAMP}.log"
 VERBOSE=0
 SHOW_HELP=0
 PARAM_FILE=""  # Will be set to default later if not specified
@@ -176,8 +177,9 @@ PURPOSE:
   between different versions, configurations, or optimizations.
 
 OUTPUT:
-  Results are stored in benchmarks/ directory with the format:
-  baseline_YYYYMMDD_HHMMSS.json
+  Results are stored in benchmarks/ directory (or BENCHMARK_DIR) with the format:
+  baseline_YYYYMMDD_HHMMSS.json, beside baseline_YYYYMMDD_HHMMSS.log, the timed
+  run's own output (warnings, errors and Mimic's run memory profile).
 
   JSON structure includes:
   - timestamp: ISO 8601 timestamp
@@ -198,6 +200,7 @@ ENVIRONMENT VARIABLES:
   MAKE_FLAGS            Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
   MPI_RUN_COMMAND       MPI launch command (e.g., "mpirun -np 4")
   MIMIC_EXECUTABLE      Override mimic executable path
+  BENCHMARK_DIR         Directory for the result JSON and run log (default: benchmarks/)
 
 EXAMPLES:
   # Basic benchmark (uses default models/sage16/input/sage16_mini-millennium.yaml)
@@ -253,8 +256,11 @@ fi
 verbose_log "Script location: ${SCRIPT_PATH}"
 verbose_log "Root directory: ${ROOT_DIR}"
 
-# Create benchmark directory if it doesn't exist
-mkdir -p "${ROOT_DIR}/benchmarks"
+# Create the results directory if it doesn't exist, and make its path absolute
+# (the script changes directory before writing to it)
+BENCHMARK_DIR="${BENCHMARK_DIR:-${ROOT_DIR}/benchmarks}"
+mkdir -p "${BENCHMARK_DIR}" || error_exit "Could not create results directory: ${BENCHMARK_DIR}"
+BENCHMARK_DIR="$(cd "${BENCHMARK_DIR}" && pwd)"
 
 # Validate parameter file exists and resolve path
 if [[ "$PARAM_FILE" = /* ]]; then
@@ -279,7 +285,7 @@ verbose_log "Using parameter file: ${PARAM_FILE}"
 # Parse benchmark-relevant settings from the run YAML using the same precedence
 # as read_parameter_file.c: simulation config defaults first, then run-file
 # sections override them.
-CONFIG_VALUES=$(PARAM_FILE="${PARAM_FILE}" ROOT_DIR="${ROOT_DIR}" ${MIMIC_PYTHON} - << 'PY'
+CONFIG_VALUES=$(PARAM_FILE="${PARAM_FILE}" ROOT_DIR="${ROOT_DIR}" "${MIMIC_PYTHON}" - << 'PY'
 import os
 import sys
 import yaml
@@ -443,7 +449,7 @@ fi
 echo "Output format: ${OUTPUT_FORMAT}"
 echo "Model set: ${SELECTED_MODEL}"
 echo "Simulation package: ${SELECTED_SIMULATION}"
-echo "Saving results to: ${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}"
+echo "Saving results to: ${BENCHMARK_DIR}/${BENCHMARK_RESULTS}"
 echo
 
 # Build Mimic using Make
@@ -507,8 +513,8 @@ if [ $VERBOSE -eq 1 ]; then
     VERBOSITY_FLAG="--verbose"
 fi
 
-# Build the full argument list for the mimic invocation
-MIMIC_ARGS="${VERBOSITY_FLAG} ${MIMIC_FLAGS} ${RUN_PARAM_FILE}"
+# Flags for the mimic invocation; the parameter file is passed as its own quoted argument
+MIMIC_ARGS="${VERBOSITY_FLAG} ${MIMIC_FLAGS}"
 
 verbose_log "Mimic runtime flags: ${VERBOSITY_FLAG} ${MIMIC_FLAGS}"
 
@@ -530,49 +536,47 @@ if [ -x "/usr/bin/time" ]; then
         verbose_log "Detected macOS"
         if [[ -n "${MPI_RUN_COMMAND}" ]]; then
             # shellcheck disable=SC2086
-            /usr/bin/time -l ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            LC_ALL=C /usr/bin/time -l ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         else
             # shellcheck disable=SC2086
-            /usr/bin/time -l "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            LC_ALL=C /usr/bin/time -l "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         fi
 
-        # Extract wall clock time (user + system)
-        USER_TIME=$(grep "user" "${TIME_OUTPUT}" | awk '{print $1}')
-        SYS_TIME=$(grep "sys" "${TIME_OUTPUT}" | awk '{print $1}')
-        REAL_TIME=$(calc "$USER_TIME + $SYS_TIME")
+        # Wall clock time: the first field of the "<real> real <user> user <sys> sys" line
+        REAL_TIME=$(awk '$2 == "real" {print $1; exit}' "${TIME_OUTPUT}")
 
         # Memory usage (convert bytes to MB)
-        MAX_MEMORY=$(grep "maximum resident set size" "${TIME_OUTPUT}" | awk '{print $1}')
-        MAX_MEMORY=$(calc "${MAX_MEMORY:-0} / 1048576" "%.2f")
+        RAW_MEMORY=$(awk '/maximum resident set size/ {print $1; exit}' "${TIME_OUTPUT}")
     else
         # Linux version
         verbose_log "Detected Linux"
         if [[ -n "${MPI_RUN_COMMAND}" ]]; then
             # shellcheck disable=SC2086
-            /usr/bin/time -v ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            LC_ALL=C /usr/bin/time -v ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         else
             # shellcheck disable=SC2086
-            /usr/bin/time -v "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            LC_ALL=C /usr/bin/time -v "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         fi
 
         # Extract wall clock time from format "h:mm:ss or m:ss.ss"
         TIME_STR=$(grep "Elapsed (wall clock) time" "${TIME_OUTPUT}" | sed 's/.*: //')
-        # Convert to seconds
-        if [[ $TIME_STR == *:*:* ]]; then
+        # Convert to seconds; an unparsed value is left empty and refused below
+        if [[ $TIME_STR =~ ^[0-9]+:[0-9]+:[0-9.]+$ ]]; then
             # Format h:mm:ss
             REAL_TIME=$(echo "$TIME_STR" | awk -F: '{print ($1 * 3600) + ($2 * 60) + $3}')
-        else
+        elif [[ $TIME_STR =~ ^[0-9]+:[0-9.]+$ ]]; then
             # Format m:ss.ss
             REAL_TIME=$(echo "$TIME_STR" | awk -F: '{print ($1 * 60) + $2}')
+        else
+            REAL_TIME=""
         fi
 
-        # Memory usage (convert KB to MB)
-        MAX_MEMORY=$(grep "Maximum resident set size" "${TIME_OUTPUT}" | awk '{print $NF}')
-        MAX_MEMORY=$(calc "${MAX_MEMORY:-0} / 1024" "%.2f")
+        # Memory usage (KB)
+        RAW_MEMORY=$(awk '/Maximum resident set size/ {print $NF; exit}' "${TIME_OUTPUT}")
     fi
 
     if [ $VERBOSE -eq 1 ]; then
@@ -586,11 +590,11 @@ else
 
     if [[ -n "${MPI_RUN_COMMAND}" ]]; then
         # shellcheck disable=SC2086
-        ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2>&1
+        ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
         RUN_STATUS=$?
     else
         # shellcheck disable=SC2086
-        "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2>&1
+        "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
         RUN_STATUS=$?
     fi
 
@@ -602,13 +606,17 @@ fi
 
 set -e
 
+# Keep the run's own output: stdout (INFO lines, including the run memory profile, which
+# Mimic prints even under --quiet) then stderr (warnings, errors and the timing report).
+cat "${RUN_OUTPUT}" "${TIME_OUTPUT}" > "${BENCHMARK_DIR}/${BENCHMARK_LOG}"
+
 # Check if run was successful
 if [ $RUN_STATUS -ne 0 ]; then
     echo "ERROR: Mimic execution failed with exit code $RUN_STATUS"
     echo "Output:"
     cat "${RUN_OUTPUT}"
     rm -f "${RUN_OUTPUT}" "${TIME_OUTPUT}"
-    error_exit "Mimic execution failed"
+    error_exit "Mimic execution failed (run log: ${BENCHMARK_DIR}/${BENCHMARK_LOG})"
 fi
 
 if [ $VERBOSE -eq 1 ]; then
@@ -617,6 +625,19 @@ if [ $VERBOSE -eq 1 ]; then
 fi
 
 rm -f "${RUN_OUTPUT}" "${TIME_OUTPUT}"
+
+# A measurement /usr/bin/time did not report is a failed benchmark, never a zero
+if [[ "${MAX_MEMORY}" != "N/A" ]]; then
+    [[ "${REAL_TIME}" =~ ^[0-9]+(\.[0-9]+)?$ ]] ||
+        error_exit "Could not read the wall time from /usr/bin/time (run log: ${BENCHMARK_DIR}/${BENCHMARK_LOG})"
+    [[ "${RAW_MEMORY}" =~ ^[0-9]+$ ]] ||
+        error_exit "Could not read the peak memory from /usr/bin/time (run log: ${BENCHMARK_DIR}/${BENCHMARK_LOG})"
+    if [ "$(uname)" = "Darwin" ]; then
+        MAX_MEMORY=$(calc "${RAW_MEMORY} / 1048576" "%.2f")  # bytes to MB
+    else
+        MAX_MEMORY=$(calc "${RAW_MEMORY} / 1024" "%.2f")     # KB to MB
+    fi
+fi
 
 # Get system and build information
 if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
@@ -676,7 +697,7 @@ TOTAL_OUTPUT_SIZE=${TOTAL_OUTPUT_SIZE:-0}
 # Create comprehensive JSON output
 echo "Generating benchmark results..."
 
-cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
+cat > "${BENCHMARK_DIR}/${BENCHMARK_RESULTS}" << EOF
 {
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "git": {
@@ -716,7 +737,8 @@ cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
     "wall_time_seconds": $REAL_TIME,
     "max_memory_mb": "$MAX_MEMORY",
     "total_output_size_bytes": $TOTAL_OUTPUT_SIZE,
-    "sample_output_file": "$OUTPUT_FILE"
+    "sample_output_file": "$OUTPUT_FILE",
+    "run_log": "${BENCHMARK_DIR}/${BENCHMARK_LOG}"
   },
   "notes": {
     "memory_measurement": "Memory measured using $([[ -x /usr/bin/time ]] && echo '/usr/bin/time' || echo 'fallback method (less accurate)')"
@@ -743,7 +765,8 @@ echo "Git Commit: $GIT_COMMIT"
 echo "Git Branch: $GIT_BRANCH"
 echo "Git Dirty: $GIT_DIRTY"
 echo
-echo "Full results saved to: ${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}"
+echo "Full results saved to: ${BENCHMARK_DIR}/${BENCHMARK_RESULTS}"
+echo "Run log saved to: ${BENCHMARK_DIR}/${BENCHMARK_LOG}"
 echo
 echo "USAGE NOTES:"
 echo "  - Run this script regularly to track performance changes"

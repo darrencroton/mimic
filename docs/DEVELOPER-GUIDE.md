@@ -1626,7 +1626,19 @@ make MODEL=sage16 SIMULATION=mini-millennium generate-test-inputs
 ./scripts/benchmark_mimic.sh models/sage16/input/sage16_mini-millennium.yaml
 ```
 
-Run `./scripts/benchmark_mimic.sh --help` for MPI, HDF5, and custom build-flag options.
+Run `./scripts/benchmark_mimic.sh --help` for MPI, HDF5, and custom build-flag options. Each result JSON has the timed run's own output beside it (`baseline_<stamp>.log`, which holds Mimic's run memory profile), and `BENCHMARK_DIR` sets where both are written.
+
+To measure a matrix of configurations, `scripts/benchmark_matrix.py` calls `benchmark_mimic.sh` once per point of model × simulation × output mode (`final`, the last snapshot only, or `all`) × MPI rank count, one run at a time. Each run clean-builds Mimic in the checkout the script runs from and times the executable it built, so nothing else should build or test in that checkout while a matrix runs. It supports L-Halo binary trees under the vertical driver and horizontal HDF5 datasets under the horizontal driver. Each point runs a copy of the shipped `models/<model>/input/<model>_<simulation>.yaml` that differs only in the tree-file range (the whole box by default, or `--files FIRST:LAST`), `output.snapshot_list` and an output directory in a scratch location, which the script removes once it has read the run. Before anything runs, it refuses a missing package, run file or input file, an unsupported tree type, a run file that sets `simulation.config`, an existing scratch run directory, `MIMIC_EXECUTABLE`, an inherited `MAKEFLAGS`, and a `USE-MPI` in `MAKE_FLAGS`. Everything one invocation measures lands in `benchmarks/matrix_<label>_<stamp>/`: `summary.csv`, one row per run, rewritten after every run so an interruption loses nothing finished, and per run the run file, result JSON, run log and the run's `metadata/`. A run whose receipt or measurements cannot be read is a failed row with its reason, and the matrix goes on. The script's module docstring defines every column and where it is read from; the memory to compare is `mimic_peak_rss_rank0_gb`, and the total memory of an MPI job is not measured.
+
+To compare two machines, run the same command, with the same rank list, on each from the same commit, on the same edition of the tree data, and compare their tables:
+
+```bash
+mimic_venv/bin/python3 scripts/benchmark_matrix.py --label studio --ranks "1 4 8" --dry-run
+mimic_venv/bin/python3 scripts/benchmark_matrix.py --label studio --ranks "1 4 8"
+mimic_venv/bin/python3 scripts/benchmark_matrix.py --label laptop --ranks "1 4 8"
+```
+
+The default matrix is `halos-only` and `sage16` on the whole of `millennium` and `mini-uchuu`. File names do not tell one edition of the data from another (the reissued mini-Uchuu files keep the old names), so copy the tree data to both machines from one current source, and check that `galaxies_written` agrees between the two tables. Every row records its file range and whether it is the whole box, so a machine that holds only part of a simulation (`--files 0:63`) is never compared unawares. The scratch location (default `output/benchmark-matrix-<stamp>/`, or `--scratch DIR`) must hold one run's whole output: `sage16` on the whole mini-Uchuu box wrote 52 GB at eight output snapshots, so the `all` mode there needs hundreds of GB free.
 
 ---
 

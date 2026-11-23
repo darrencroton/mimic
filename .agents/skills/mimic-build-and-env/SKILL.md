@@ -137,7 +137,7 @@ On the maintainer's machine, several paths are symlinks to local disks. All are 
 |---|---|---|
 | `output/` | Run results (run files default to `output/<run-name>/`) | Harmless — Mimic creates output directories automatically; a real `output/` dir simply appears. Prior results obviously won't be there. |
 | `archive/` | Project convention for logs and retired files (`archive/test-logs/`, `archive/fuzz-logs/`) | `mkdir -p archive` before capturing test logs; it stays gitignored. |
-| `benchmarks/` | `scripts/benchmark_mimic.sh` JSON results | `mkdir -p benchmarks` (the script needs it; gitignored). |
+| `benchmarks/` | `scripts/benchmark_mimic.sh` JSON results and run logs; `scripts/benchmark_matrix.py` result sets | `mkdir -p benchmarks` (the script needs it; gitignored). |
 | `obsidian-inbox/` | Maintainer's note-export destination | Ignore unless a task explicitly targets it. |
 | `sage-code/` | Local checkout of original SAGE for parity work | Only needed for SAGE-parity comparisons; formatting/build exclude it either way. |
 | `simulations/*/snapshots/` | Merger-tree input data per simulation package | The ONLY one first_run.sh populates is `mini-millennium` (real dir + download). Every other package needs your own symlink or copy: `ln -s /path/to/your/data simulations/<sim>/snapshots`. A run against a missing `snapshots/` fails at input reading; tests that need absent production data must SKIP cleanly, not fail (see the `mimic-validation-and-qa` skill). |
