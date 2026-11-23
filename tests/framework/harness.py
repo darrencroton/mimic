@@ -395,6 +395,23 @@ def default_run_file():
     return core_input_file("test_binary.yaml")
 
 
+def shipped_run_file():
+    """Return the committed run file of the selected model and simulation.
+
+    ``models/<model>/input/<model>_<simulation>.yaml``, the file a user runs. A test that
+    mirrors the shipped pipeline, parameters or output snapshots reads them from here, so that
+    it follows the selected pair instead of assuming mini-Millennium's snapshot indices.
+
+    Raises:
+        TestSkipped: the selected pair ships no run file (the case applies but cannot run).
+    """
+    model = compiled_model()
+    path = REPO_ROOT / "models" / model / "input" / f"{model}_{compiled_simulation()}.yaml"
+    if not path.is_file():
+        raise TestSkipped(f"selected pair ships no run file at {path.relative_to(REPO_ROOT)}")
+    return path
+
+
 def simulation_input_file(filename):
     """Return a generated input file owned by the selected simulation tests."""
     return _generated_input(
@@ -744,8 +761,11 @@ def create_test_param_file(
                             user-named phase whose entries are all 'process_rates' is the
                             run's one rate phase)
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
-        first_file (int): First file to process (default: keep reference simulation config)
-        last_file (int): Last file to process (default: keep reference simulation config)
+        first_file (int): First file to process (default: keep the reference run file's)
+        last_file (int): Last file to process (default: keep the reference run file's)
+                         Written into the generated run file's input: section, which
+                         takes precedence over the simulation config, and into the
+                         generated simulation config alongside it.
                          A horizontal package has no input file range: a single-file
                          request (0..0) is not written, and any other range skips the
                          test (TestNotApplicable), since only the vertical readers have one.
@@ -829,10 +849,14 @@ def create_test_param_file(
         sim_config = yaml.safe_load(f)
     # The horizontal reader derives its file set from the snapshot list, so the
     # single-file request every test makes by convention has nothing to set there.
-    if first_file is not None and not horizontal:
-        sim_config["input"]["first_file"] = first_file
-    if last_file is not None and not horizontal:
-        sim_config["input"]["last_file"] = last_file
+    # A run file's input: range takes precedence over the simulation config's, so a
+    # requested range goes into both, keeping the two in agreement.
+    for key, value in (("first_file", first_file), ("last_file", last_file)):
+        if value is not None and not horizontal:
+            sim_config["input"][key] = value
+            if not isinstance(config.get("input"), dict):  # absent, or a blank `input:`
+                config["input"] = {}
+            config["input"][key] = value
 
     generated_sim_config = Path(temp_dir) / f"{output_name}_simulation.yaml"
     with open(generated_sim_config, "w") as f:

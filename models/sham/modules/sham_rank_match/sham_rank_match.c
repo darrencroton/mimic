@@ -327,8 +327,8 @@ static int check_configuration(void) {
 /**
  * @brief Fail a parameter that is NaN or infinite
  *
- * The strict parser accepts "nan" and "inf" and range comparisons pass NaN, so
- * every value is checked here before its range check.
+ * The strict parser already refuses non-finite text; every value is checked again
+ * here before its range check because range comparisons pass NaN.
  */
 static int check_finite(const char *name, double value) {
   if (!isfinite(value)) {

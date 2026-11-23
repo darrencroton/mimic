@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
@@ -39,6 +40,7 @@ from framework import (
     check_no_memory_leaks,
     load_binary_halos,
     run_test_suite,
+    shipped_run_file,
 )
 
 RUNS = SharedRuns()
@@ -164,8 +166,14 @@ RUN_FILE_PARAMS = {
     "BulgeSizeOn": 3,
 }
 
-# The run files' output snapshots, all written so that the cap is checked at every epoch
-SNAPSHOT_LIST = [63, 37, 32, 27, 23, 20, 18, 16]
+
+def _snapshot_list():
+    """The shipped run file's output snapshots of the selected simulation, all written so that
+    the cap is checked at every epoch: [63, 37, 32, 27, 23, 20, 18, 16] for mini-Millennium,
+    [49, 28, 23, 16, 12, 10, 8, 7] for micro-Uchuu (indices of each simulation's a_list)."""
+    with open(shipped_run_file()) as handle:
+        return [int(snapshot) for snapshot in yaml.safe_load(handle)["output"]["snapshot_list"]]
+
 
 # The reservoirs and rate an uncapped star formation drives negative, through the feedback step
 NON_NEGATIVE_FIELDS = (
@@ -315,24 +323,25 @@ def test_cold_gas_cap_without_supernova_calculator():
     outflow rate rather than in ColdGas. The apply step therefore caps NewStellarMass at ColdGas.
 
     Pipeline: NO_CALCULATOR_PHASES, the run files' phases minus the calculator, at the run files'
-    parameters, writing the run files' eight snapshots (SNAPSHOT_LIST).
+    parameters, writing the run files' eight snapshots (`_snapshot_list`).
 
     The three metal fields are held to METALS_ROUNDING_FLOOR rather than 0 (the floor's comment).
     """
     require_mimic()
+    snapshot_list = _snapshot_list()
     run = RUNS.run(
         "no_calculator_cap",
         phase_config=NO_CALCULATOR_PHASES,
         model_params=RUN_FILE_PARAMS,
         substeps=1,
-        snapshot_list=SNAPSHOT_LIST,
+        snapshot_list=snapshot_list,
     )
     assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
 
     output_files = sorted(run.output_dir.glob("model_z*_0"))
     assert len(output_files) == len(
-        SNAPSHOT_LIST
-    ), f"Expected {len(SNAPSHOT_LIST)} snapshot outputs, found {len(output_files)}"
+        snapshot_list
+    ), f"Expected {len(snapshot_list)} snapshot outputs, found {len(output_files)}"
 
     minima = {field: np.inf for field in NON_NEGATIVE_FIELDS}
     negative_rows = {field: 0 for field in NON_NEGATIVE_FIELDS}

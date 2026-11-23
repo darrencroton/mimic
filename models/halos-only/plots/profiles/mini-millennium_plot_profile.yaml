@@ -1,8 +1,6 @@
 inherits:
   - default.yaml
 
-mode: exploration
-
 simulation: mini-millennium
 
 axes:
@@ -12,4 +10,3 @@ axes:
   spatial_distribution:
     xlim: [0.0, 62.5]
     ylim: [0.0, 62.5]
-

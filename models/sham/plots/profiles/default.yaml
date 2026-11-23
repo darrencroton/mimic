@@ -4,8 +4,6 @@
 # evolution figures. Axis keys are set per simulation in <simulation>_plot_profile.yaml; every
 # figure carries its own defaults.
 
-mode: exploration
-
 plots:
   snapshot:
     - halo_mass_function

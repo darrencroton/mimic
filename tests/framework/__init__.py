@@ -53,6 +53,7 @@ from .harness import (
     run_mimic_fresh,
     selected_package_is_horizontal,
     selected_package_test_config,
+    shipped_run_file,
     simulation_input_file,
 )
 from .markers import (
@@ -103,6 +104,7 @@ __all__ = [
     "core_input_file",
     "default_run_file",
     "simulation_input_file",
+    "shipped_run_file",
     "selected_package_is_horizontal",
     "selected_package_test_config",
     "not_applicable_if_selected_package_is_horizontal",

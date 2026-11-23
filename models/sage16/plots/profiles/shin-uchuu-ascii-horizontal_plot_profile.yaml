@@ -1,8 +1,6 @@
 inherits:
   - default.yaml
 
-mode: validation
-
 simulation: shin-uchuu-ascii-horizontal
 
 axes:

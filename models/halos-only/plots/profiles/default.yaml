@@ -1,5 +1,3 @@
-mode: exploration
-
 plots:
   snapshot:
     - halo_mass_function

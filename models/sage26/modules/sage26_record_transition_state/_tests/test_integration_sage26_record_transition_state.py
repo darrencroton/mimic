@@ -20,10 +20,12 @@ orphan transitions 0 -> 2, 1 -> 2 and 2 -> 2. MergTime is not written; the clock
 are asserted by the merger clock's unit tests.
 
 Test cases:
-  - test_consecutive_snapshot_transitions: the package pipeline (snapshots 30 to 63);
+  - test_consecutive_snapshot_transitions: the package pipeline (its last 34 snapshots, 30 to 63
+    on mini-Millennium);
     each written transition carries SAGE26's infall values, every Type 0 row 0
   - test_orphan_transitions_without_merger_pass: the pipeline without its merger pass
-    (snapshots 0 to 63); the orphan transitions too, with TimeOfInfall's rule
+    (every snapshot, 0 to 63 on mini-Millennium); the orphan transitions too, with TimeOfInfall's
+    rule
 """
 
 import sys
@@ -36,19 +38,36 @@ import yaml
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import MIMIC_EXE, SharedRuns, TestSkipped, run_test_suite  # noqa: E402
+from framework import (  # noqa: E402
+    MIMIC_EXE,
+    SharedRuns,
+    TestSkipped,
+    default_run_file,
+    read_param_file,
+    run_test_suite,
+    shipped_run_file,
+)
 
 RUNS = SharedRuns()
 
-RUN_FILE = REPO_ROOT / "models" / "sage26" / "input" / "sage26_mini-millennium.yaml"
-FIRST_SNAPSHOT = 30
-LAST_SNAPSHOT = 63
+
+def _last_snapshot():
+    """The selected simulation's final snapshot index (63 mini-Millennium, 49 micro-Uchuu)."""
+    return int(read_param_file(default_run_file())["LastSnapshotNr"])
+
+
+def _first_snapshot():
+    """The first of the 34 consecutive snapshots the package pipeline is followed over (30 to 63
+    for mini-Millennium)."""
+    return _last_snapshot() - 33
+
+
 INFALL_FIELDS = ("infallMvir", "infallVvir", "infallVmax", "infallStellarMass", "TimeOfInfall")
 
 
 def _run_file_pipeline():
     """The package run file's phases and parameters, as create_test_param_file takes them."""
-    with open(RUN_FILE, "r") as f:
+    with open(shipped_run_file(), "r") as f:
         modules = yaml.safe_load(f)["modules"]
 
     def entries(items):
@@ -181,7 +200,7 @@ def _check_transitions(snapshots, first, last):
 
 
 def _run_and_load(output_name, phase_config, params, first):
-    """Run the given pipeline writing every snapshot from first to 63, and load them."""
+    """Run the given pipeline writing every snapshot from first to the last, and load them."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     run = RUNS.run(
@@ -189,12 +208,12 @@ def _run_and_load(output_name, phase_config, params, first):
         phase_config=phase_config,
         model_params=params,
         output_format="hdf5",
-        snapshot_list=list(range(first, LAST_SNAPSHOT + 1)),
+        snapshot_list=list(range(first, _last_snapshot() + 1)),
     )
     assert run.returncode == 0, f"Mimic should run the pipeline\nStderr: {run.stderr}"
     snapshots = _load_snapshots(run.output_dir)
     assert sorted(snapshots) == list(
-        range(first, LAST_SNAPSHOT + 1)
+        range(first, _last_snapshot() + 1)
     ), f"every snapshot should be written, got {sorted(snapshots)}"
     return snapshots
 
@@ -211,9 +230,9 @@ def test_consecutive_snapshot_transitions():
 
     phase_config, params = _run_file_pipeline()
     snapshots = _run_and_load(
-        "sage26_record_transition_state_snapshots", phase_config, params, FIRST_SNAPSHOT
+        "sage26_record_transition_state_snapshots", phase_config, params, _first_snapshot()
     )
-    counts, checked = _check_transitions(snapshots, FIRST_SNAPSHOT, LAST_SNAPSHOT)
+    counts, checked = _check_transitions(snapshots, _first_snapshot(), _last_snapshot())
     for case in ("0->0", "0->1", "1->1", "1->0"):
         assert counts[case] > 0, f"the run should contain the transition {case}"
     assert checked["0->1 infallVvir"] > 0, "some 0->1 halos should have grown"
@@ -228,7 +247,7 @@ def test_orphan_transitions_without_merger_pass():
 
     The package pipeline without its satellite_mergers phase (the merger and
     disruption pass and its event consumers; no other module requires them) writes
-    every snapshot from 0 to 63. Orphans are then never consumed, so the written rows
+    every snapshot from 0 to the last. Orphans are then never consumed, so the written rows
     hold 0 -> 2 (non-main branch), 1 -> 2 and 2 -> 2 as well, checked as
     _check_transitions describes, TimeOfInfall's rule included: kept on 0 -> 2 from
     an earlier infall, 0 on Type 0 rows.
@@ -243,8 +262,10 @@ def test_orphan_transitions_without_merger_pass():
         assert all(
             name != "sage26_resolve_mergers_and_disruption" for name, _ in mods
         ), "the merger pass should be left out"
+    # Only the merger and disruption pass reads this key; Mimic refuses one no module reads
+    params = {name: value for name, value in params.items() if name != "ThresholdSatDisruption"}
     snapshots = _run_and_load("sage26_record_transition_state_orphans", phase_config, params, 0)
-    counts, checked = _check_transitions(snapshots, 0, LAST_SNAPSHOT)
+    counts, checked = _check_transitions(snapshots, 0, _last_snapshot())
     for case in ("0->1", "1->1", "1->0", "0->2", "1->2", "2->2"):
         assert counts[case] > 0, f"the run should contain the transition {case}"
     assert counts["2->0"] == 0 and counts["2->1"] == 0, "an orphan never regains a subhalo"

@@ -1,8 +1,6 @@
 inherits:
   - default.yaml
 
-mode: exploration
-
 simulation: mini-millennium-horizontal
 
 axes:

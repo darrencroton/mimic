@@ -39,6 +39,12 @@ from framework import (
 
 RUNS = SharedRuns()
 
+# Lowest MetalsEjectedGas allowed on a row whose EjectedGas is itself a cancellation residue (at
+# most EJECTED_RESIDUE_CEILING), 800 times the measured -1.2e-18 and the package baseline test's
+# RANGE_ATOL; the residue rows measured carry EjectedGas up to 6e-23
+METALS_EJECTED_RESIDUE_FLOOR = -1.0e-15
+EJECTED_RESIDUE_CEILING = 1.0e-15
+
 # The gas supply (reionization, infall, reincorporation, cooling), the instability trigger and
 # the burst. There is no disk star formation module and no merger module, so every star in the
 # output comes from the burst module's disk-instability channel.
@@ -86,6 +92,13 @@ def test_full_pipeline_burst():
     The only writer of StarFormationRate in this pipeline is the burst, so a positive rate
     marks a galaxy that burst in its last snapshot. Such a galaxy formed stars, put them in
     its bulge and reheated gas into its outflow.
+
+    Every written reservoir is held to 0 except MetalsEjectedGas, which may be negative only on a
+    row with EjectedGas at most EJECTED_RESIDUE_CEILING and down to METALS_EJECTED_RESIDUE_FLOOR.
+    sage_reincorporation subtracts Z * reincorporated after clamping reincorporated to EjectedGas,
+    which leaves float-cancellation residue in MetalsEjectedGas (a SAGE-parity behaviour).
+    Measured on micro-Uchuu: 17 of 309,156 rows, minimum -1.22e-18; mini-Millennium is too small
+    to show it.
     """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
@@ -121,7 +134,16 @@ def test_full_pipeline_burst():
     ):
         values = halos[name]
         assert np.all(np.isfinite(values)), f"{name} should be finite"
-        assert np.all(values >= 0.0), f"{name} should be non-negative"
+        if name == "MetalsEjectedGas":
+            residue = (halos["EjectedGas"] <= EJECTED_RESIDUE_CEILING) & (
+                values >= METALS_EJECTED_RESIDUE_FLOOR
+            )
+            assert np.all((values >= 0.0) | residue), (
+                f"{name} should be non-negative, or a residue down to "
+                f"{METALS_EJECTED_RESIDUE_FLOOR} where EjectedGas is a residue"
+            )
+        else:
+            assert np.all(values >= 0.0), f"{name} should be non-negative"
 
     # Some galaxies burst, and a bursting galaxy carries the burst's products
     bursting = halos["StarFormationRate"] > 0.0

@@ -20,11 +20,17 @@ once and:
   - checks that the same output holds no NaN or Inf and no value outside the
     `range:` its property metadata declares, for every output property
 
+Owning package: the package is the directory holding this file (BASELINE_MODEL) and the
+baseline's simulation is a constant (BASELINE_SIMULATION), as in the sage26 twin, so a copy in a
+forked package runs against that package's own baseline and fails if the copied input or baseline
+still names another model. Another simulation is NA; another model is a loud SKIP.
+
 Test cases:
-  - test_input_matches_run_file: the input's SubSteps and modules block equal the
-    package's vertical run file's, value for value and in order, so the baseline
-    pins the pipeline the package ships and a run-file change fails here until the
-    input and the baseline are refreshed with it
+  - test_input_matches_run_file: the input and the committed baseline name this
+    package (not the package this file was copied from), and the input's SubSteps and
+    modules block equal the package's vertical run file's, value for value and in
+    order, so the baseline pins the pipeline the package ships and a run-file change
+    fails here until the input and the baseline are refreshed with it
   - test_sage_physics_baseline: the fresh run matches the committed baseline; its
     output field names are the baseline's followed by the test fixtures' output
     fields (the tier runs a test build, which appends them; see
@@ -64,6 +70,7 @@ fixtures' output fields. Then:
 and document why in the commit message.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -81,16 +88,16 @@ from framework import (  # noqa: E402  (path set up above)
     RED,
     VALIDATION_MANIFEST_PATH,
     YELLOW,
+    TestNotApplicable,
     TestSkipped,
     baseline_rtol,
     compare_halos_comprehensive,
     compiled_model,
+    compiled_simulation,
     find_validity_violations,
     format_validity_finding,
-    is_default_baseline_combo,
     load_binary_halos,
     load_validation_manifest,
-    not_applicable_to_non_default_baseline,
     run_mimic_fresh,
     run_test_suite,
 )
@@ -99,22 +106,20 @@ from framework.harness import (  # noqa: E402
     check_output_names_reject_doctoring,
 )
 
-INPUT = (
-    REPO_ROOT / "models" / "sage16" / "modules" / "_tests" / "input" / "test_physics_binary.yaml"
-)
-CURRENT = REPO_ROOT / "tests" / "data" / "output" / "physics-binary" / "model_z0.000_0"
-BASELINE = (
-    REPO_ROOT
-    / "models"
-    / "sage16"
-    / "modules"
-    / "_tests"
-    / "baseline"
-    / "physics-binary"
-    / "model_z0.000_0"
-)
+# The package this file belongs to, from its own path (models/<package>/modules/_tests/), so a
+# copy in a forked package is that package's test, and the simulation its baseline belongs to
+PACKAGE_DIR = Path(__file__).resolve().parents[2]
+BASELINE_MODEL = PACKAGE_DIR.name
+BASELINE_SIMULATION = "mini-millennium"
 
-RUN_FILE = REPO_ROOT / "models" / "sage16" / "input" / "sage16_mini-millennium.yaml"
+TESTS_DIR = PACKAGE_DIR / "modules" / "_tests"
+INPUT = TESTS_DIR / "input" / "test_physics_binary.yaml"
+CURRENT = REPO_ROOT / "tests" / "data" / "output" / "physics-binary" / "model_z0.000_0"
+BASELINE_DIR = TESTS_DIR / "baseline" / "physics-binary"
+BASELINE = BASELINE_DIR / "model_z0.000_0"
+BASELINE_SCHEMA = BASELINE_DIR / "metadata" / "output_schema.json"
+
+RUN_FILE = PACKAGE_DIR / "input" / f"{BASELINE_MODEL}_{BASELINE_SIMULATION}.yaml"
 
 # Absolute slack on declared ranges; see "Range tolerance" in the module docstring
 RANGE_ATOL = 1e-15
@@ -123,13 +128,31 @@ RANGE_ATOL = 1e-15
 _fresh_run_done = False
 
 
+def check_baseline_pair():
+    """Raise unless the selected pair is the one the committed baseline belongs to.
+
+    The registry runs a model-local test only under its own model, so another model is a
+    misconfiguration and stays a loud SKIP. The test is registered under its own model with
+    every member of FULL_MODEL_TEST_SIMULATIONS, so another simulation is a legitimate,
+    deterministic consequence of the selection: NA.
+    """
+    model = compiled_model()
+    if model != BASELINE_MODEL:
+        raise TestSkipped(
+            f"MODEL={model}; this baseline is {BASELINE_MODEL}-specific and the registry runs it "
+            f"only under MODEL={BASELINE_MODEL}"
+        )
+    simulation = compiled_simulation()
+    if simulation != BASELINE_SIMULATION:
+        raise TestNotApplicable(
+            f"committed baseline is for MODEL={BASELINE_MODEL} SIMULATION={BASELINE_SIMULATION}, "
+            f"but this run selected MODEL={model} SIMULATION={simulation}"
+        )
+
+
 def _require_runnable():
     """Skip or mark not applicable unless this baseline's package pair is built and ready."""
-    if compiled_model() != "sage16":
-        raise TestSkipped(f"MODEL={compiled_model()}, this baseline is SAGE-specific")
-    if not is_default_baseline_combo():
-        not_applicable_to_non_default_baseline()
-
+    check_baseline_pair()
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 
@@ -155,11 +178,28 @@ def _ordered(node):
 
 
 def test_input_matches_run_file():
-    """The input's SubSteps and modules block equal the package run file's, in order."""
+    """The input and baseline name this package, and the input's pipeline equals its run file's."""
     assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
     assert RUN_FILE.exists(), f"Package run file not found: {RUN_FILE}"
     with open(INPUT, encoding="utf-8") as handle:
         test_input = yaml.safe_load(handle)
+
+    # A package forked from this one must re-key its copied input and baseline, or the copy
+    # would be checking the original's reference
+    assert test_input["model"]["name"] == BASELINE_MODEL, (
+        f"{RED}input {INPUT.name} runs model '{test_input['model']['name']}', not this "
+        f"package's '{BASELINE_MODEL}': re-key the copied input{NC}"
+    )
+    assert BASELINE_SCHEMA.exists(), (
+        f"{RED}Committed baseline schema not found: {BASELINE_SCHEMA}\n"
+        f"This package has no baseline of its own (see this file's docstring).{NC}"
+    )
+    with open(BASELINE_SCHEMA, encoding="utf-8") as handle:
+        baseline_model = json.load(handle).get("model")
+    assert baseline_model == BASELINE_MODEL, (
+        f"{RED}committed baseline was captured from model '{baseline_model}', not this "
+        f"package's '{BASELINE_MODEL}': capture this package's own baseline{NC}"
+    )
     with open(RUN_FILE, encoding="utf-8") as handle:
         run_file = yaml.safe_load(handle)
 

@@ -49,5 +49,3 @@ plots:
     - central_satellite_fraction_massive_quiescent
     - quenched_central_satellite_counts
     - ffb_fraction_cut_down
-
-mode: exploration

@@ -9,13 +9,15 @@ A manual acceptance test (tests/manual/ is never globbed into ``make tests``)::
 It is the byte gate for any change that must not move a result: an optimisation, a build-flag
 change, a refactor. ``REFERENCE_COMMIT`` is required (there is no pinned default: this is an
 instrument, not a feature's own gate) and must be an ancestor of HEAD whose Makefile writes the
-build-mode markers the gate asserts (``15d7e8c4``, 2026-06-12, or later). Eight legs,
-{halos-only, sage16} x {vertical, horizontal mini-Millennium} x {fixed, dynamic}: each is the
-committed run file ``models/<model>/input/<model>_mini-millennium.yaml`` (or ``..._horizontal``)
+build-mode markers the gate asserts (``15d7e8c4``, 2026-06-12, or later) and that carries every
+leg's package (``check_selected_paths()``) with run files of the same text as HEAD's
+(``committed_run_file()``); for the ``sage26`` legs that means 2026-11-09 or later. Twelve legs,
+{halos-only, sage16, sage26} x {vertical, horizontal mini-Millennium} x {fixed, dynamic}: each is
+the committed run file ``models/<model>/input/<model>_mini-millennium.yaml`` (or ``...-horizontal``)
 with only ``output_directory`` redirected, and the dynamic leg is ``dynamic_variant()`` of it. The
-reference and HEAD each run that file on the real data both packages' ``snapshots`` links point
-to; the test fails, never skips, when a dataset is absent, because a gate whose only defence is
-the data it verifies must not report success on an empty comparison.
+reference and HEAD each run that file on the real data the two simulation packages' ``snapshots``
+links point to; the test fails, never skips, when a dataset is absent, because a gate whose only
+defence is the data it verifies must not report success on an empty comparison.
 
 Per leg, both runs must record the leg's model, simulation, commit and timestep scheme in
 ``RunProperties``; then the one output comparison shared with the snapshot-global battery
@@ -108,7 +110,7 @@ from framework.parity_gate import (  # noqa: E402
     worktree_root_lock,
 )
 
-MODELS = ("halos-only", "sage16")
+MODELS = ("halos-only", "sage16", "sage26")
 SCHEMES = ("fixed", "dynamic")
 TREES = ("reference", "head")
 

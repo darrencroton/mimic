@@ -302,8 +302,8 @@ struct HodDoubleCheck {
 /**
  * @brief Fail a double parameter that is not finite or outside its domain
  *
- * The strict parser accepts "nan" and "inf" and range comparisons pass NaN, so
- * finiteness is checked before the domain.
+ * The strict parser already refuses non-finite text; finiteness is checked again
+ * before the domain because range comparisons pass NaN.
  */
 static int check_double_parameter(const struct HodDoubleCheck *check) {
   const double value = *check->value;

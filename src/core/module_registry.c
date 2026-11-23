@@ -54,6 +54,12 @@ static struct Module *execution_pipeline[MAX_MODULES];
 static int num_pipeline_modules = 0;
 
 /**
+ * Whether a lookup has named MimicConfig.ModelParams[i] since module_system_init() began.
+ * Kept here, not in the ModelParams struct, whose layout is the HDF5 Parameters dataset's row.
+ */
+static bool model_param_read[MAX_MODEL_PARAMS];
+
+/**
  * @brief Phase-local event dispatch state
  *
  * Active only during execute_phase(). Enables module_emit_event() to append
@@ -1284,12 +1290,17 @@ int64_t module_discrete_ledger_units(void) { return discrete_ledger_units; }
  * (pre_timestep, named substep phases, post_timestep, post_snapshot), with
  * duplicates initialized only once. Once every init() has returned 0, it
  * builds each non-empty FoF phase's dispatch plan, which execute_phase()
- * requires; the phase configuration must not change until cleanup.
+ * requires; the phase configuration must not change until cleanup. It clears the
+ * record of model-parameter lookups first, so module_system_refuse_unread_parameters()
+ * reports on this initialisation only.
  *
  * @return  0 on success, non-zero if initialization fails
  */
 int module_system_init(void) {
   int validation_failed = 0;
+
+  /* Before anything can return: the refusal's record must describe this initialisation only */
+  memset(model_param_read, 0, sizeof(model_param_read));
 
   VERBOSE_LOG("Initializing multi-phase module system");
 
@@ -2636,6 +2647,26 @@ static int parse_int_strict(const char *str, int *out, const char *param_name) {
 }
 
 /**
+ * @brief   Find a run-file model parameter by name and record that it was looked up
+ *
+ * Every model_get_*() reader and model_has_param() goes through here, so
+ * module_system_refuse_unread_parameters() sees each lookup. The first entry of
+ * that name wins; a duplicate is never looked up and so stays unread.
+ *
+ * @param   param_name   Parameter name
+ * @return  Index into MimicConfig.ModelParams, or -1 if the run file does not set it
+ */
+static int find_model_param(const char *param_name) {
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
+      model_param_read[i] = true;
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * @brief   Get required model parameter as double
  *
  * Model parameters MUST be specified in the input YAML file.
@@ -2650,10 +2681,9 @@ static int parse_int_strict(const char *str, int *out, const char *param_name) {
  * @return  0 on success, -1 if parameter missing or invalid
  */
 int model_get_double(const char *param_name, double *out_value) {
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
-      return parse_double_strict(MimicConfig.ModelParams[i].value, out_value, param_name);
-    }
+  const int i = find_model_param(param_name);
+  if (i >= 0) {
+    return parse_double_strict(MimicConfig.ModelParams[i].value, out_value, param_name);
   }
 
   ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
@@ -2681,24 +2711,16 @@ int model_get_double_internal(const char *param_name, double *out_value) {
  * @return  0 on success, -1 if parameter missing or invalid
  */
 int model_get_int(const char *param_name, int *out_value) {
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
-      return parse_int_strict(MimicConfig.ModelParams[i].value, out_value, param_name);
-    }
+  const int i = find_model_param(param_name);
+  if (i >= 0) {
+    return parse_int_strict(MimicConfig.ModelParams[i].value, out_value, param_name);
   }
 
   ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
   return -1;
 }
 
-bool model_has_param(const char *param_name) {
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
-      return true;
-    }
-  }
-  return false;
-}
+bool model_has_param(const char *param_name) { return find_model_param(param_name) >= 0; }
 
 /**
  * @brief   Get required model parameter as string
@@ -2714,14 +2736,37 @@ bool model_has_param(const char *param_name) {
  * @return  0 on success, -1 if parameter missing
  */
 int model_get_string(const char *param_name, char *out_value, size_t max_len) {
-  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
-    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
-      strncpy(out_value, MimicConfig.ModelParams[i].value, max_len - 1);
-      out_value[max_len - 1] = '\0';
-      return 0;
-    }
+  const int i = find_model_param(param_name);
+  if (i >= 0) {
+    strncpy(out_value, MimicConfig.ModelParams[i].value, max_len - 1);
+    out_value[max_len - 1] = '\0';
+    return 0;
   }
 
   ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
   return -1;
+}
+
+/**
+ * @brief   Refuse run-file model parameters that no configured module read
+ *
+ * See module_registry.h for the contract.
+ */
+int module_system_refuse_unread_parameters(void) {
+  int unread = 0;
+
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (!model_param_read[i]) {
+      ERROR_LOG("modules.parameters: '%s' is not read by any configured module (misspelt, "
+                "duplicated, its module not configured, or read only beside another module)",
+                MimicConfig.ModelParams[i].param_name);
+      unread++;
+    }
+  }
+
+  if (unread > 0) {
+    ERROR_LOG("modules.parameters has %d key(s) that no configured module reads", unread);
+    return -1;
+  }
+  return 0;
 }

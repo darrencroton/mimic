@@ -17,7 +17,7 @@ The halos-only model property file intentionally has an empty `galaxy_properties
 ## Package Contents
 
 - `model_properties.yaml`: Empty model-owned galaxy-property metadata.
-- `input/halos-only_mini-millennium.yaml`: User-facing mini-Millennium run file.
+- `input/`: User-facing run files, one per simulation package, named `halos-only_<simulation>.yaml`: every vertical and horizontal simulation package that ships, among them `halos-only_mini-millennium.yaml`.
 - `plots/figures/`: Halo/catalog diagnostic plots for `mimic-plot.py`.
 - `plots/profiles/`: Plot profile defaults for halos-only runs.
 - `modules/_tests/`: Utility test metadata and package-level integration checks. This directory is not a runtime physics module.

@@ -112,7 +112,7 @@ Deleting one line from `modules.phases:` is only safe for a self-contained modul
 - `sage_calculate_supernova_feedback` → `sage_apply_star_formation_supernova` (which also consumes `sage_calculate_star_formation`'s output)
 - `sage_apply_star_formation_supernova` produces `NewStellarMass`, consumed by `sage_apply_metal_enrichment`
 
-Rule: to disable a physics process, remove the whole coupled chain, and check each module's `module_info.yaml` `dependencies:` block first. Some modules also enforce ordering at init and will FATAL if their partner is missing or misordered — that failure is your friend; do not work around it. Missing parameters for enabled modules fail during module `init()`; extra entries in `modules.parameters:` are currently tolerated, recorded in metadata, and not caught by `scripts/lint_parameter_usage.py` (that linter compares C parameter loads against `module_info.yaml`, not run YAML).
+Rule: to disable a physics process, remove the whole coupled chain, and check each module's `module_info.yaml` `dependencies:` block first. Some modules also enforce ordering at init and will FATAL if their partner is missing or misordered — that failure is your friend; do not work around it. Missing parameters for enabled modules fail during module `init()`; an entry in `modules.parameters:` that no configured module reads is refused at startup, so disabling a module also means removing the keys only it read (`scripts/lint_parameter_usage.py` is a different check: it compares C parameter loads against `module_info.yaml`).
 
 ## Horizontal runs
 
@@ -223,7 +223,7 @@ Exit code 0 or it failed — treat any non-zero code as a real failure regardles
 
 ## --skip and --compress
 
-- `--skip`: before processing each partition (input file/chunk), Mimic checks whether ALL of its output files already exist. All present → the partition is skipped (resume/restart support). **Some but not all present → FATAL**: a partial chunk means an interrupted write, and Mimic refuses to guess. Remove the partial files or rerun the whole partition without `--skip`. The vertical driver also keeps an in-flight marker, `<OutputDir>/<base>_<NNN>.inflight`, from just before it claims a partition's files until they are closed, so a kill or an `MPI_Abort` leaves the marker behind; `--skip` redoes any marked partition whatever its files hold, which is what makes resume safe after an aborted multi-rank run.
+- `--skip`: before processing each partition (input file/chunk), Mimic checks whether ALL of its output files already exist. All present → the partition is skipped (resume/restart support). **Some but not all present → FATAL**: a partial chunk means an interrupted write, and Mimic refuses to guess. Remove the partial files or rerun the whole partition without `--skip`; the refusal itself deletes nothing. The vertical driver also keeps an in-flight marker, `<OutputDir>/<base>_<NNN>.inflight`, from just before it claims a partition's files until they are closed, so a kill or an `MPI_Abort` leaves the marker behind; `--skip` redoes any marked partition whatever its files hold, which is what makes resume safe after an aborted multi-rank run.
 - `--compress`: HDF5 only — enables gzip compression on galaxy datasets (off by default). This is byte-level compression: values are bit-identical on read, only file size changes. Silently irrelevant for binary output. There is no YAML key for compression; the CLI flag is the only switch.
 
 ## MPI runs

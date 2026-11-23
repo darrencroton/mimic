@@ -51,8 +51,8 @@ COMMON_DERIVATIONS = [
         },
         {
             "Model - All": [(10.35, 3 * PHI_ONE)],
-            "Model - Red": [(10.35, 2 * PHI_ONE)],
-            "Model - Blue": [(10.35, PHI_ONE)],
+            "Model - Passive": [(10.35, 2 * PHI_ONE)],
+            "Model - Star-forming": [(10.35, PHI_ONE)],
         },
         drop_zero_y=True,
     ),

@@ -28,9 +28,15 @@ simulation check rather than the framework's default-pair guard: the committed b
 MODEL=sage26 SIMULATION=mini-millennium, which is not the Makefile's default pair, so that guard
 would report NA under every sage26 pair.
 
+Owning package: the package is the directory holding this file (BASELINE_MODEL) and the
+baseline's simulation is a constant (BASELINE_SIMULATION), as in the sage16 twin, so a copy in a
+forked package runs against that package's own baseline and fails if the copied input or baseline
+still names another model, or the input writes anywhere but CURRENT_DIR.
+
 Test cases:
-  - test_input_matches_run_file: the input's SubSteps and modules block equal the run file's, so a
-    deliberate run-file change fails here until the baseline is refreshed with it
+  - test_input_matches_run_file: the input and the committed baseline name this package (not the
+    package this file was copied from), and the input's SubSteps and modules block equal the run
+    file's, so a deliberate run-file change fails here until the baseline is refreshed with it
   - test_sage26_physics_baseline: a fresh run of the input matches the committed baseline at
     every output snapshot, and the baseline covers the default pipeline's physics; the output
     field names are the baseline's followed by the test fixtures' output fields (the tier runs a
@@ -65,6 +71,7 @@ commit message. Never edit a baseline file by hand, and never refresh it to sile
 that has not been explained.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -101,15 +108,17 @@ from framework.harness import (  # noqa: E402
     check_output_names_reject_doctoring,
 )
 
-# The package pair the committed baseline belongs to
-BASELINE_MODEL = "sage26"
+# The package pair the committed baseline belongs to: the package is the one this file sits in
+# (models/<package>/modules/_tests/), so a copy in a forked package is that package's test
+PACKAGE_DIR = Path(__file__).resolve().parents[2]
+BASELINE_MODEL = PACKAGE_DIR.name
 BASELINE_SIMULATION = "mini-millennium"
 
-TESTS_DIR = REPO_ROOT / "models" / "sage26" / "modules" / "_tests"
+TESTS_DIR = PACKAGE_DIR / "modules" / "_tests"
 INPUT = TESTS_DIR / "input" / "test_physics_binary.yaml"
-RUN_FILE = REPO_ROOT / "models" / "sage26" / "input" / "sage26_mini-millennium.yaml"
+RUN_FILE = PACKAGE_DIR / "input" / f"{BASELINE_MODEL}_{BASELINE_SIMULATION}.yaml"
 BASELINE_DIR = TESTS_DIR / "baseline" / "physics-binary"
-CURRENT_DIR = REPO_ROOT / "output" / "sage26-physics-binary"
+CURRENT_DIR = REPO_ROOT / "output" / f"{BASELINE_MODEL}-physics-binary"
 
 # The input's output snapshots and the binary file Mimic writes for each (model_z<z>_0, z from
 # tests/data/input/mini-millennium.a_list). FFB_SNAPSHOT is the snapshot, among five of the package
@@ -118,6 +127,7 @@ CURRENT_DIR = REPO_ROOT / "output" / "sage26-physics-binary"
 FFB_SNAPSHOT = 16
 OUTPUT_FILES = {63: "model_z0.000_0", FFB_SNAPSHOT: "model_z7.272_0"}
 SCHEMA = Path("metadata") / "output_schema.json"
+BASELINE_SCHEMA = BASELINE_DIR / SCHEMA
 
 # Row selections the committed baseline must hold at least one row of, as (snapshot, label,
 # selection), so a pass says something about the physics the default pipeline switches on
@@ -171,6 +181,12 @@ def _fresh_outputs():
     global _fresh_run_done
     if not _fresh_run_done:
         assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
+        # A forked package's copied input must be re-pointed before anything is removed or run
+        written = (REPO_ROOT / _load_yaml(INPUT)["output"]["output_directory"]).resolve()
+        assert written == CURRENT_DIR.resolve(), (
+            f"{RED}input {INPUT.name} writes to {written}, not {CURRENT_DIR}: re-key the copied "
+            f"input{NC}"
+        )
         # Remove every expected output first, so a stale file cannot satisfy a later check
         for name in [*OUTPUT_FILES.values(), SCHEMA]:
             stale = CURRENT_DIR / name
@@ -200,11 +216,28 @@ def _load_yaml(path):
 
 
 def test_input_matches_run_file():
-    """The input's SubSteps and modules block equal the vertical run file's, in order."""
+    """The input and baseline name this package; the input's pipeline equals its run file's."""
     assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
     assert RUN_FILE.exists(), f"Package run file not found: {RUN_FILE}"
     test_input = _load_yaml(INPUT)
     run_file = _load_yaml(RUN_FILE)
+
+    # A package forked from this one must re-key its copied input and baseline, or the copy
+    # would be checking the original's reference
+    assert test_input["model"]["name"] == BASELINE_MODEL, (
+        f"{RED}input {INPUT.name} runs model '{test_input['model']['name']}', not this "
+        f"package's '{BASELINE_MODEL}': re-key the copied input{NC}"
+    )
+    assert BASELINE_SCHEMA.exists(), (
+        f"{RED}Committed baseline schema not found: {BASELINE_SCHEMA}\n"
+        f"This package has no baseline of its own (see this file's docstring).{NC}"
+    )
+    with open(BASELINE_SCHEMA, encoding="utf-8") as handle:
+        baseline_model = json.load(handle).get("model")
+    assert baseline_model == BASELINE_MODEL, (
+        f"{RED}committed baseline was captured from model '{baseline_model}', not this "
+        f"package's '{BASELINE_MODEL}': capture this package's own baseline{NC}"
+    )
 
     for key in ("SubSteps", "modules"):
         assert key in run_file, f"run file {RUN_FILE.name} has no '{key}'"

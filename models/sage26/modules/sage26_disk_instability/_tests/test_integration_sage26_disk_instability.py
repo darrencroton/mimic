@@ -12,8 +12,8 @@ zeros, so no case runs it that way. The run is configured once and shared by the
 
 Test cases:
   - test_property_values_physical: the run reports no memory leak; unstable disks occur (some rows
-    hold a bulge), and every row's BulgeMass and MetalsBulgeMass are non-negative and at most one
-    float above the stellar totals
+    hold a bulge), and every row's BulgeMass and MetalsBulgeMass are non-negative and within
+    float rounding of the stellar totals
 
 UnstableDiskGasFraction is an internal hand-off to the downstream modules (not an output
 property), so the instability's gas branch is asserted in the C unit tests.
@@ -81,6 +81,11 @@ SUPPLY_PARAMS = {
 }
 
 
+# Largest excess of the bulge over the stellar total, in units of ColdGas + StellarMass: twice
+# the float32 rounding of the disk mass (2^-23), the measured maximum being 1.09 * 2^-24
+BULGE_EXCESS_SCALE = 2.0**-22
+
+
 def supply_run():
     """Run (once) and return the supply pipeline, asserting a clean exit."""
     if not MIMIC_EXE.exists():
@@ -93,10 +98,16 @@ def supply_run():
 def test_property_values_physical():
     """The run leaks nothing, unstable disks occur, and the bulge stays within SAGE26's rounding.
 
-    SAGE26 adds the double unstable_stars straight into the float BulgeMass, with no clamp to
-    StellarMass, so a full-disk transfer can leave the bulge one float above the stellar total.
-    A bulge already above it has a negative disk and transfers nothing more, so one float is the
-    bound (likewise for the metals).
+    SAGE26 caps neither the transfer nor the bulge (the SAGE parity note in
+    sage_disk_instability_physics.h): the disk mass ColdGas + (StellarMass - BulgeMass) is summed
+    in float, unstable_stars follows from it, and the transfer goes straight into the float
+    BulgeMass with no clamp to StellarMass. The one float32 rounding of the disk mass can so leave
+    BulgeMass above StellarMass by about 2^-24 of (ColdGas + StellarMass), and once it is above no
+    further transfer follows. The bound is therefore BULGE_EXCESS_SCALE * (ColdGas + StellarMass),
+    2^-22, and the same mass scale bounds the metals, since the transferred stars' metallicity is at
+    most 1. A disk with no stars transfers exactly nothing, so a row with StellarMass = 0 has no
+    allowance. Measured on micro-Uchuu (95 rows with the bulge above StellarMass): at most
+    1.09 * 2^-24 of that scale; a wrong transfer would exceed the bound by orders of magnitude.
     """
     run = supply_run()
     assert check_no_memory_leaks(run.stdout, run.stderr), "Should not have memory leaks"
@@ -109,17 +120,24 @@ def test_property_values_physical():
     assert np.sum(bulge > 0) > 0, "unstable disks should move stars to the bulge on some rows"
     assert np.sum(metals_bulge > 0) > 0, "the moved stars should carry metals to the bulge"
 
-    def one_float_above(values):
-        return np.nextafter(np.asarray(values, dtype=np.float32), np.float32(np.inf))
+    stellar_mass = np.asarray(halos["StellarMass"], dtype=np.float32)
+    disk_scale = np.float32(BULGE_EXCESS_SCALE) * (
+        np.asarray(halos["ColdGas"], dtype=np.float32) + stellar_mass
+    )
+    disk_scale[stellar_mass == 0] = 0  # no stars, no transfer, no rounding
+
+    def within_rounding(bulge_values, stellar_values):
+        """Bulge at most the disk-mass rounding allowance above the stellar total."""
+        return bulge_values <= np.asarray(stellar_values, dtype=np.float32) + disk_scale
 
     assert (bulge >= 0).all(), "BulgeMass should be >= 0"
-    assert (
-        bulge <= one_float_above(halos["StellarMass"])
-    ).all(), "BulgeMass should be at most one float above StellarMass"
+    assert within_rounding(
+        bulge, halos["StellarMass"]
+    ).all(), "BulgeMass should exceed StellarMass by at most 2^-22 of (ColdGas + StellarMass)"
     assert (metals_bulge >= 0).all(), "MetalsBulgeMass should be >= 0"
-    assert (
-        metals_bulge <= one_float_above(halos["MetalsStellarMass"])
-    ).all(), "MetalsBulgeMass should be at most one float above MetalsStellarMass"
+    assert within_rounding(
+        metals_bulge, halos["MetalsStellarMass"]
+    ).all(), "MetalsBulgeMass should exceed MetalsStellarMass by at most the same allowance"
 
 
 def main():

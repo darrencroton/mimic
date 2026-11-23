@@ -110,14 +110,14 @@ def build_phase_config(quasar_consumer=True, starburst_consumer=True, galaxy_phy
 RUNS = SharedRuns()
 
 
-def merger_run(name, phase_config):
-    """Return the shared run `name` of MERGER_MODEL_PARAMS, asserting it succeeded
+def merger_run(name, phase_config, model_params=MERGER_MODEL_PARAMS):
+    """Return the shared run `name` of `model_params`, asserting it succeeded
 
     Skips the calling case when Mimic is not built.
     """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
-    run = RUNS.run(name, phase_config=phase_config, model_params=MERGER_MODEL_PARAMS)
+    run = RUNS.run(name, phase_config=phase_config, model_params=model_params)
     assert run.returncode == 0, f"the {name} pipeline should succeed\nSTDERR: {run.stderr}"
     return run
 
@@ -170,6 +170,14 @@ NO_STARBURST_PHASES = build_phase_config(starburst_consumer=False)
 BOUND_PHASES = build_phase_config(
     starburst_consumer=False, galaxy_physics=BOUND_GALAXY_PHYSICS_MODULES
 )
+# Mimic refuses a parameter no configured module reads: the metal-yield keys belong to modules
+# the bound pipeline omits (the burst module, the metal enrichment), and so does the cold-gas
+# burst switch
+BOUND_MODEL_PARAMS = {
+    name: value
+    for name, value in MERGER_MODEL_PARAMS.items()
+    if name not in ("Yield", "FracZleaveDisk", "StarburstColdGasOn")
+}
 
 # SAGE26's never-merged timestamp, -1
 NEVER_MERGED = -1.0
@@ -339,7 +347,9 @@ def test_merger_bulge_bound():
     transaction's bulge writes (every merger, and major mergers), and requires both bounds on
     every row, with major and minor mergers present and the bound attained.
     """
-    halos = load_output_halos(merger_run("merger_bound", BOUND_PHASES).output_dir)
+    halos = load_output_halos(
+        merger_run("merger_bound", BOUND_PHASES, BOUND_MODEL_PARAMS).output_dir
+    )
 
     never = np.float32(np.float32(NEVER_MERGED) * unit_time_in_megayears())
     major = halos["TimeOfLastMajorMerger"] != never
@@ -368,7 +378,7 @@ def test_written_merger_timestamps():
     A galaxy that never had a merger of a kind is written as float(-1 * factor); a merged
     one as float(t * factor) for its float lookback time t, a substep midpoint event time.
     """
-    run = merger_run("merger_bound", BOUND_PHASES)
+    run = merger_run("merger_bound", BOUND_PHASES, BOUND_MODEL_PARAMS)
     halos = load_output_halos(run.output_dir)
     factor = unit_time_in_megayears()
     never = np.float32(np.float64(np.float32(NEVER_MERGED)) * factor)

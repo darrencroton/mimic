@@ -14,8 +14,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import yaml
-
 # Add framework to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -50,26 +48,6 @@ def _require_default_vertical_build():
         )
 
 
-def _param_file_with_file_range(output_name, first_file, last_file):
-    """Create a run file whose input range is first_file..last_file.
-
-    The generated run files carry an explicit ``input:`` range, which takes precedence over the
-    range create_test_param_file() writes into the simulation config, so the range is set in the
-    run file as well (the same step test_unique_galaxy_id_encoding.py takes).
-    """
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name=output_name, first_file=first_file, last_file=last_file
-    )
-    with open(param_file, "r") as handle:
-        config = yaml.safe_load(handle)
-    config.setdefault("input", {})
-    config["input"]["first_file"] = first_file
-    config["input"]["last_file"] = last_file
-    with open(param_file, "w") as handle:
-        yaml.dump(config, handle, default_flow_style=False, sort_keys=False)
-    return param_file, output_dir, temp_dir
-
-
 def test_no_input_file_is_fatal():
     """
     Test that a range naming no existing input file stops the run before any processing.
@@ -82,7 +60,7 @@ def test_no_input_file_is_fatal():
 
     # ===== SETUP =====
     _require_default_vertical_build()
-    param_file, output_dir, temp_dir = _param_file_with_file_range(
+    param_file, output_dir, temp_dir = create_test_param_file(
         "missing_inputs_none", first_file=900, last_file=901
     )
 
@@ -116,7 +94,7 @@ def test_partly_missing_input_files_warn_and_run():
 
     # ===== SETUP =====
     _require_default_vertical_build()
-    param_file, output_dir, temp_dir = _param_file_with_file_range(
+    param_file, output_dir, temp_dir = create_test_param_file(
         "missing_inputs_partial", first_file=0, last_file=1
     )
 

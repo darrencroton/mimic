@@ -310,13 +310,14 @@ def calculate_mass_function(mass_array, volume, hubble_h, binwidth=0.1, mi=None,
     Returns:
         Tuple of (xaxis, yaxis) for plotting
         - xaxis: Bin centers
-        - yaxis: Number density (Mpc^-3 h^3 dex^-1) in comoving coordinates
+        - yaxis: Number density (Mpc^-3 dex^-1) in comoving coordinates, without h
 
     Normalization formula:
         phi = counts / volume * h^3 / binwidth
 
-        This gives the comoving number density per dex. The h^3 factor converts
-        from (Mpc/h)^-3 to physical units when needed.
+        This gives the comoving number density per dex. Dividing by a volume in
+        (Mpc/h)^3 gives (Mpc/h)^-3 = h^3 Mpc^-3; the h^3 factor removes that h, so the
+        result is in Mpc^-3 dex^-1.
 
     Example:
         >>> mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)

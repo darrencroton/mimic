@@ -135,6 +135,8 @@ Parameters come from `modules.parameters` in the run YAML. There are **no defaul
 
 The `*_INTERNAL` variants convert a dimensional parameter from the units declared in `models/<model>/parameter_units.yaml` into the internal reference basis on load (see `mimic-properties`; no shipped model declares one today, and neither `hod` nor `sham` uses an `*_INTERNAL` loader: `hod` loads nine ordinary doubles plus the integer seed `HODSeed`, and `sham` loads its nine as ordinary doubles, in the units their READMEs state). Declare every parameter in `dependencies.parameters`; `make lint-parameters` fails (exit 1) on used-but-undeclared and warns (exit 2) on declared-but-unused. Validate physical ranges locally — only the module knows its constraints.
 
+The converse holds at run time: after every configured module's `init()`, `main()` calls `module_system_refuse_unread_parameters()`, so a run-file key that no configured module looked up fails at startup, naming the key. Read every parameter in `init()`, read an optional one behind `model_has_param()` (it counts as a read), and give a test only the keys its configured modules read; tests that call `module_system_init()` directly skip the check.
+
 ## 7. Ordering guards and the transport-property pattern
 
 Metadata dependencies do not enforce order, so modules that require a specific pipeline arrangement enforce it themselves at `init()` using the registry queries in `src/core/module_registry.h`:

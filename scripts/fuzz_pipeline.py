@@ -9,6 +9,12 @@ and ERROR/FATAL lines in output; scientific correctness of output is not evaluat
 The empty pipeline (zero modules, halos-only) is always a valid configuration and
 duplicate modules are allowed by design, so neither is treated as an error.
 
+Mimic refuses a modules.parameters key that no configured module reads, so each fuzz config
+carries only the base run file's parameters that the selected modules declare in
+module_info.yaml (dependencies.parameters; an empty pipeline gets none). A few modules read a
+declared key only beside another module, so when a run is refused for unread keys they are
+dropped and the run repeated once; the saved config is the repeated run's.
+
 Two sampling modes are available:
 
   random (default): modules are independently selected, assigned to random
@@ -125,6 +131,11 @@ _PHASE_NAME_POOL = [
 # captured via pipe). These prefixes are always present for ERROR/FATAL levels.
 _ERROR_PREFIXES = ("ERROR:", "FATAL:")
 
+# The refusal logged for each modules.parameters key no configured module read.
+_UNREAD_PARAMETER_PATTERN = re.compile(
+    r"modules\.parameters: '([^']+)' is not read by any configured module"
+)
+
 # Pattern that identifies deliberate inter-module ordering validation messages.
 # These are intentional contract checks — "module A requires module B to precede it"
 # — not runtime or infrastructure failures. Filtered in non-strict mode.
@@ -158,10 +169,11 @@ def is_horizontal_package(simulation: str) -> bool:
 def discover_modules(model: str, horizontal: bool = False) -> List[Dict[str, Any]]:
     """Return a list of fuzzable modules for the given model.
 
-    Each entry: {"name": str, "modes": List[str], "snapshot": bool} where modes
-    contains only non-event processing modes the module supports (possibly none)
-    and snapshot is True when the module supports process_snapshot and the run
-    is horizontal, the only driver that runs the post_snapshot phase.
+    Each entry: {"name": str, "modes": List[str], "snapshot": bool, "parameters": Set[str]}
+    where modes contains only non-event processing modes the module supports (possibly
+    none), snapshot is True when the module supports process_snapshot and the run is
+    horizontal, the only driver that runs the post_snapshot phase, and parameters is the
+    module's dependencies.parameters.
     """
     modules_dir = REPO_ROOT / "models" / model / "modules"
     if not modules_dir.exists():
@@ -185,7 +197,15 @@ def discover_modules(model: str, horizontal: bool = False) -> List[Dict[str, Any
         snapshot = horizontal and SNAPSHOT_MODE in all_modes
         if not eligible_modes and not snapshot:
             continue
-        result.append({"name": name, "modes": eligible_modes, "snapshot": snapshot})
+        declared = (mod.get("dependencies") or {}).get("parameters") or []
+        result.append(
+            {
+                "name": name,
+                "modes": eligible_modes,
+                "snapshot": snapshot,
+                "parameters": {p["name"] if isinstance(p, dict) else p for p in declared},
+            }
+        )
 
     if not result:
         sys.exit(f"ERROR: no fuzzable modules found for model '{model}'")
@@ -248,6 +268,23 @@ def _slot_entries(bucket: List[Tuple[str, str]]) -> Optional[List[Dict[str, str]
     if not bucket:
         return None
     return [{name: mode} for name, mode in bucket]
+
+
+def _declared_parameters(
+    base_config: Dict[str, Any], all_modules: List[Dict[str, Any]], module_names: Iterable[str]
+) -> Dict[str, Any]:
+    """Return the base run file's parameters that the named modules declare.
+
+    Mimic refuses a parameter no configured module reads, so a mutated pipeline keeps only
+    the keys its own modules declare; an empty pipeline gets an empty mapping.
+    """
+    names = set(module_names)
+    declared: Set[str] = set()
+    for module in all_modules:
+        if module["name"] in names:
+            declared |= module["parameters"]
+    base = (base_config.get("modules") or {}).get("parameters") or {}
+    return {key: value for key, value in base.items() if key in declared}
 
 
 def generate_config(
@@ -340,7 +377,9 @@ def generate_config(
     snapshot_entries = _slot_entries(snapshot_bucket)
     if snapshot_entries is not None:
         modules_block["post_snapshot"] = snapshot_entries
-    modules_block["parameters"] = (base_config.get("modules") or {}).get("parameters")
+    configured = [name for bucket in slot_buckets.values() for name, _ in bucket]
+    configured += [name for name, _ in snapshot_bucket]
+    modules_block["parameters"] = _declared_parameters(base_config, all_modules, configured)
 
     return {
         "model": base_config["model"],
@@ -518,6 +557,7 @@ def _entries_by_phase(
 
 def _build_config_from_phase_entries(
     base_config: Dict[str, Any],
+    all_modules: List[Dict[str, Any]],
     output_dir: Path,
     grouped: Dict[str, List[Tuple[str, str]]],
 ) -> Dict[str, Any]:
@@ -546,7 +586,8 @@ def _build_config_from_phase_entries(
     if snapshot_entries is not None:
         modules_block["post_snapshot"] = snapshot_entries
 
-    modules_block["parameters"] = (base_config.get("modules") or {}).get("parameters")
+    configured = [name for entries in grouped.values() for name, _ in entries]
+    modules_block["parameters"] = _declared_parameters(base_config, all_modules, configured)
 
     return {
         "model": base_config["model"],
@@ -592,7 +633,7 @@ def generate_valid_subset_config(
     selected = {entry for entry in canonical_entries if rng.random() < density}
     _close_known_dependencies(model, selected, canonical_entries)
     grouped = _entries_by_phase(selected, canonical_entries)
-    return _build_config_from_phase_entries(base_config, output_dir, grouped)
+    return _build_config_from_phase_entries(base_config, all_modules, output_dir, grouped)
 
 
 def generate_fuzz_config(
@@ -651,6 +692,24 @@ def run_mimic(config: Dict[str, Any], timeout: int) -> Tuple[int, str, str]:
             os.unlink(config_path)
         except OSError:
             pass
+
+
+def run_mimic_dropping_unread(config: Dict[str, Any], timeout: int) -> Tuple[int, str, str]:
+    """Run mimic; if it refuses unread modules.parameters keys, drop exactly those and rerun once.
+
+    A module may declare a key it reads only beside another module, so the declared set can
+    still hold a key the chosen pipeline never reads; that refusal is the generator's doing, not
+    the pipeline's, in strict mode too. The config is updated in place, so a saved failure holds
+    the run that failed, and the rerun's stdout starts with a line naming the dropped keys.
+    """
+    exit_code, stdout, stderr = run_mimic(config, timeout)
+    unread = set(_UNREAD_PARAMETER_PATTERN.findall(stdout + stderr))
+    if exit_code != 0 and unread:
+        parameters = config["modules"]["parameters"]
+        config["modules"]["parameters"] = {k: v for k, v in parameters.items() if k not in unread}
+        exit_code, stdout, stderr = run_mimic(config, timeout)
+        stdout = f"fuzz: reran without unread parameters {sorted(unread)}\n" + stdout
+    return exit_code, stdout, stderr
 
 
 # ---------------------------------------------------------------------------
@@ -751,7 +810,7 @@ def run_one(
             seed, model, base_config, all_modules, Path(output_dir), sampling
         )
         t0 = time.monotonic()
-        exit_code, stdout, stderr = run_mimic(config, timeout)
+        exit_code, stdout, stderr = run_mimic_dropping_unread(config, timeout)
         elapsed = time.monotonic() - t0
 
     status, reason = classify(exit_code, stdout, stderr, strict=strict)
@@ -795,12 +854,12 @@ def replay_seed(
             seed, model, base_config, all_modules, Path(output_dir), sampling
         )
 
-        print(f"=== Config for seed={seed} ===")
-        print(yaml.dump(config, default_flow_style=False, sort_keys=False))
-
         t0 = time.monotonic()
-        exit_code, stdout, stderr = run_mimic(config, timeout)
+        exit_code, stdout, stderr = run_mimic_dropping_unread(config, timeout)
         elapsed = time.monotonic() - t0
+
+        print(f"=== Config for seed={seed} (as run) ===")
+        print(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
     status, reason = classify(exit_code, stdout, stderr, strict=strict)
 

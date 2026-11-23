@@ -246,6 +246,87 @@ int test_single_phase_configuration(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_unread_model_parameters_are_refused
+ * @brief   module_system_refuse_unread_parameters() accepts read keys and refuses the rest
+ *
+ * Expected: with test_fixture configured (it reads TestFixtureDummyParameter and
+ * TestFixtureEnableLogging), a run file whose keys are all read passes; a misspelt key and a
+ * repeated key are each refused with the key named once; and a physics-free run refuses any key.
+ * Validates: VISION.md Principle 7 for modules.parameters, including that a lookup of the first
+ * entry does not cover a later duplicate
+ */
+int test_unread_model_parameters_are_refused(void) {
+  static const struct {
+    const char *label;
+    const char *extra_name; /* a third entry appended after the two test_fixture reads */
+    int configure_module;   /* 0: physics-free run */
+    int expect_refused;     /* 1: the extra entry (or, physics-free, every entry) is refused */
+  } rows[] = {
+      {"all keys read", NULL, 1, 0},
+      {"misspelt key", "TestFixtureEnableLoging", 1, 1},
+      {"repeated key", "TestFixtureDummyParameter", 1, 1},
+      {"physics-free run", "TestFixtureEnableLogging", 0, 1},
+  };
+  const char *refusal_text = "is not read by any configured module";
+
+  for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+    /* ===== SETUP ===== */
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+    set_test_fixture_params(1.0, 0);
+    if (rows[r].extra_name != NULL) {
+      const int idx = MimicConfig.NumModelParams++;
+      strcpy(MimicConfig.ModelParams[idx].param_name, rows[r].extra_name);
+      strcpy(MimicConfig.ModelParams[idx].value, "0");
+    }
+    if (rows[r].configure_module) {
+      test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+    }
+    MimicConfig.SubSteps = 1;
+
+    FILE *log = tmpfile();
+    TEST_ASSERT(log != NULL, "tmpfile() should provide a capture stream for the refusal log");
+    FILE *prior_output = set_log_output(log);
+
+    /* ===== EXECUTE ===== */
+    const int init_result = module_system_init();
+    const int result = module_system_refuse_unread_parameters();
+
+    set_log_output(prior_output);
+    char text[4096];
+    rewind(log);
+    const size_t length = fread(text, 1, sizeof(text) - 1, log);
+    text[length] = '\0';
+    fclose(log);
+
+    /* ===== VERIFY ===== */
+    TEST_ASSERT_EQUAL(init_result, 0, rows[r].label);
+    TEST_ASSERT_EQUAL(result, rows[r].expect_refused ? -1 : 0, rows[r].label);
+    if (!rows[r].expect_refused) {
+      TEST_ASSERT(strstr(text, refusal_text) == NULL, rows[r].label);
+    } else {
+      /* Physics-free: both test_fixture keys and the extra one are unread (3 entries); with the
+       * module configured only the extra entry is */
+      const int expected_lines = rows[r].configure_module ? 1 : 3;
+      int lines = 0;
+      for (const char *at = text; (at = strstr(at, refusal_text)) != NULL;
+           at += strlen(refusal_text))
+        lines++;
+      TEST_ASSERT_EQUAL(lines, expected_lines, rows[r].label);
+      char quoted[MAX_STRING_LEN];
+      snprintf(quoted, sizeof(quoted), "'%s'", rows[r].extra_name);
+      TEST_ASSERT(strstr(text, quoted) != NULL, rows[r].label);
+    }
+
+    /* ===== CLEANUP ===== */
+    module_system_cleanup();
+  }
+
+  return TEST_PASS;
+}
+
 /** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
@@ -262,6 +343,7 @@ int main(void) {
   TEST_RUN(test_empty_named_phase_cleanup);
   TEST_RUN(test_valid_module_initialization);
   TEST_RUN(test_single_phase_configuration);
+  TEST_RUN(test_unread_model_parameters_are_refused);
 
   TEST_SUMMARY();
 

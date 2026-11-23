@@ -42,6 +42,13 @@ from framework import (
 
 RUNS = SharedRuns()
 
+# Lowest MetalsEjectedGas allowed on a row whose EjectedGas is itself a cancellation residue (at
+# most EJECTED_RESIDUE_CEILING): about 1,000 times the measured -8.5e-19 (the residue rows carry
+# EjectedGas up to 6e-23), and still far above a float32-precision debit (~1e-14)
+METALS_EJECTED_RESIDUE_FLOOR = -1.0e-15
+EJECTED_RESIDUE_CEILING = 1.0e-15
+FLOAT_TINY = np.finfo(np.float32).tiny
+
 # The gas supply (reionization, infall, reincorporation, cooling), the instability trigger and
 # the burst. There is no disk star formation module and no merger module, so every star in the
 # output comes from the burst module's disk-instability channel.
@@ -76,8 +83,9 @@ FULL_PIPELINE_PARAMS = {
     "BulgeSizeOn": 0,
     # Infall and reionization
     "GlobalBaryonFraction": 0.17,
-    # Cooling with the AGN off
-    "AGNrecipe": 0,
+    # No AGNrecipe: no module here reads it (no radio mode, quasar mode or regime-aware cooling,
+    # and the burst module reads it only for a process_per_event quasar mode), and Mimic refuses
+    # a key that no configured module reads
     # Reincorporation
     "ReIncorporationFactor": 0.15,
     # Disk instability
@@ -161,6 +169,17 @@ def test_full_pipeline_burst():
     marks a galaxy that burst in its last snapshot. Such a galaxy formed stars, put them in
     its bulge through the instability channel (the pipeline has no mergers, so the merger
     channel's MergerBulgeMass stays 0 in every row) and reheated gas into its outflow.
+
+    Every written reservoir is held to 0 except MetalsEjectedGas, which may be negative only on a
+    row with EjectedGas at most EJECTED_RESIDUE_CEILING and down to
+    METALS_EJECTED_RESIDUE_FLOOR. sage26_reincorporation subtracts Z * reincorporated after clamping
+    reincorporated to EjectedGas, which leaves float-cancellation residue in MetalsEjectedGas
+    (a SAGE-parity behaviour). Measured on micro-Uchuu: 10 of 309,156 rows, minimum -8.5e-19;
+    mini-Millennium is too small to show it.
+
+    The outflow check skips a StarFormationRate below the smallest normal float: on micro-Uchuu 3
+    orphans of 309,156 carry about 1e-44 with ColdGas 0 and an outflow rate of exactly 0
+    (underflow). The stars, bulge and instability-channel checks still cover them.
     """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
@@ -198,7 +217,16 @@ def test_full_pipeline_burst():
     ):
         values = halos[name]
         assert np.all(np.isfinite(values)), f"{name} should be finite"
-        assert np.all(values >= 0.0), f"{name} should be non-negative"
+        if name == "MetalsEjectedGas":
+            residue = (halos["EjectedGas"] <= EJECTED_RESIDUE_CEILING) & (
+                values >= METALS_EJECTED_RESIDUE_FLOOR
+            )
+            assert np.all((values >= 0.0) | residue), (
+                f"{name} should be non-negative, or a residue down to "
+                f"{METALS_EJECTED_RESIDUE_FLOOR} where EjectedGas is a residue"
+            )
+        else:
+            assert np.all(values >= 0.0), f"{name} should be non-negative"
 
     # Some galaxies burst, and a bursting galaxy carries the burst's products
     bursting = halos["StarFormationRate"] > 0.0
@@ -208,8 +236,11 @@ def test_full_pipeline_burst():
     assert np.all(
         halos["InstabilityBulgeMass"][bursting] > 0.0
     ), "A disk-instability burst credits the instability channel"
+    # A rate below the smallest normal float is underflow residue and carries no outflow
+    normal_burst = halos["StarFormationRate"] >= FLOAT_TINY
+    assert np.any(normal_burst), "Some galaxy should burst at a normal star formation rate"
     assert np.all(
-        halos["SupernovaOutflowRate"][bursting] > 0.0
+        halos["SupernovaOutflowRate"][normal_burst] > 0.0
     ), "A burst reheats gas into the outflow"
     assert np.all(
         halos["MergerBulgeMass"] == 0.0

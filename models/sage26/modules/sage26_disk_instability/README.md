@@ -9,7 +9,7 @@ The arithmetic lives in `shared/sage_disk_instability_physics.h`, which the burs
 - The disk mass is `diskmass = ColdGas + (StellarMass - BulgeMass)`; nothing happens unless it is positive.
 - The critical mass is `Mcrit = Vmax^2 * (StarFormingDiskFactor * DiskScaleRadius) / G`, from the galaxy's own `Vmax`, capped at `diskmass`.
 - The excess `diskmass - Mcrit` is split in proportion to the disk's content: `unstable_gas = (ColdGas / diskmass) * excess` and `unstable_stars` the rest.
-- Unstable stars move to `BulgeMass` and `InstabilityBulgeMass`, with metals at the disk's stellar metallicity added to `MetalsBulgeMass`. The transfer is not capped at the disk's stars and the bulge is not clamped to the stellar totals, so `BulgeMass` or `MetalsBulgeMass` can end one float rounding above `StellarMass` or `MetalsStellarMass`, as in SAGE26.
+- Unstable stars move to `BulgeMass` and `InstabilityBulgeMass`, with metals at the disk's stellar metallicity added to `MetalsBulgeMass`. The transfer is not capped at the disk's stars and the bulge is not clamped to the stellar totals, so one float32 rounding of the disk mass can leave `BulgeMass` or `MetalsBulgeMass` above `StellarMass` or `MetalsStellarMass` by about 2^-24 of the disk's gas plus stars (`ColdGas + StellarMass`) times, for the metals, the stars' metallicity, as in SAGE26.
 - With `BulgeSizeOn 3`, the instability-bulge radius follows Tonini et al. (2016) Eq. 15 (or `0.2 * DiskScaleRadius` for a first transfer) from the disk radius before the transfer, and the bulge radius is recombined from the merger and instability components (`shared/sage_bulge_size_physics.h`); with `BulgeSizeOn 0` every bulge radius keeps its value.
 - `UnstableDiskGasFraction = unstable_gas / ColdGas` where both are positive, otherwise 0.
 
@@ -47,5 +47,5 @@ The arithmetic lives in `shared/sage_disk_instability_physics.h`, which the burs
 ## Tests
 
 - `_tests/test_unit_sage26_disk_instability.c`: registration and lifecycle, stable disks (below and at the threshold, zero disk mass) transferring nothing, unstable disks transferring stars and metals, zero `Vmax` and disk radius, the absence of a transfer cap and bulge clamp, the factor's effect on stability, and the skipped FFB row.
-- `_tests/test_integration_sage26_disk_instability.py`: runs the module behind a pipeline that supplies disks, checking that unstable disks occur, that the bulge outputs are non-negative and at most one float above the stellar totals, and that nothing leaks.
+- `_tests/test_integration_sage26_disk_instability.py`: runs the module behind a pipeline that supplies disks, checking that unstable disks occur, that the bulge outputs are non-negative and no more than 2^-22 of the disk's gas plus stars above the stellar totals, and that nothing leaks.
 - The `StarFormingDiskFactor` refusals are covered at package level by `../_tests/test_unit_sage26_parameter_refusals.c`.

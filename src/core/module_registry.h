@@ -167,11 +167,35 @@ void module_registry_add(struct Module *module);
  * modules. Modules are initialized in the order they appear across all phases.
  *
  * Should be called once during program initialization, after parameter
- * reading but before tree processing begins.
+ * reading but before tree processing begins. Follow it with
+ * module_system_refuse_unread_parameters().
  *
  * @return  0 on success, non-zero if initialization fails
  */
 int module_system_init(void);
+
+/**
+ * @brief   Refuse run-file model parameters that no configured module read
+ *
+ * Principle 7 of VISION.md: a key under modules.parameters that no configured
+ * module reads is a mistake (a misspelling, a stale entry, a duplicate, or the
+ * module that reads it left out of the phases), and must fail before any
+ * processing rather than be ignored.
+ *
+ * Call once, after module_system_init() has succeeded, so every configured
+ * module's init() has already looked up what it reads. A key counts as read
+ * once model_get_double(), model_get_double_internal(), model_get_int(),
+ * model_get_string() or model_has_param() has named it since module_system_init()
+ * began (a module's optional parameter is read through model_has_param()). When
+ * the run file repeats a key, lookups reach the first entry, so each repeat is
+ * refused. A physics-free run (no configured module) refuses every key.
+ *
+ * Logs one ERROR_LOG naming each unread key, then a count. The result depends on
+ * the run file and the configured modules only, so every MPI task reaches it.
+ *
+ * @return  0 if every key was read (or the run file sets none), -1 otherwise
+ */
+int module_system_refuse_unread_parameters(void);
 
 /**
  * @brief   Execute modules in a specific phase
@@ -450,7 +474,8 @@ int model_get_int(const char *param_name, int *out_value);
  *
  * For optional parameters: the model_get_*() readers treat a missing parameter
  * as an error and log it, so a module checks presence first and reads only
- * what is there. Logs nothing.
+ * what is there. Logs nothing. The check counts as a read of the parameter for
+ * module_system_refuse_unread_parameters().
  *
  * @param   param_name      Parameter name
  * @return  true if model_parameters (MimicConfig.ModelParams) names it

@@ -204,7 +204,8 @@ def _rewrite_simulation_config(param_file, input_dir):
     Rewrite the simulation config referenced by param_file to use input_dir and lhalo_binary trees.
 
     Patches first_file/last_file, tree_name, tree_type, and simulation_dir in the
-    simulation config in-place, then updates the run config to match.
+    simulation config in-place. The run file's own input: range is already 0..1,
+    written by create_test_param_file(first_file=0, last_file=1).
     """
     with param_file.open() as handle:
         run_config = yaml.safe_load(handle)
@@ -222,12 +223,6 @@ def _rewrite_simulation_config(param_file, input_dir):
 
     with sim_config_path.open("w") as handle:
         yaml.dump(sim_config, handle, default_flow_style=False, sort_keys=False)
-
-    run_config.setdefault("input", {})
-    run_config["input"]["first_file"] = 0
-    run_config["input"]["last_file"] = 1
-    with param_file.open("w") as handle:
-        yaml.dump(run_config, handle, default_flow_style=False, sort_keys=False)
 
 
 #: The record tests/data/input/trees_063.0 is written in: mini-Millennium's catalogue record.

@@ -233,7 +233,6 @@ output:
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
 
 SubSteps: 10
-TimestepScheme: fixed
 
 modules:
   pre_timestep: []
@@ -417,7 +416,7 @@ make MODEL=sham SIMULATION=micro-uchuu-horizontal
 
 It writes one output epoch (snapshot 49) while accumulating peak history over every processed snapshot, and runs under the horizontal driver only. Select the sample with `ShamGhost == 0`. The result is a recovery of the target by construction, not an observational parity claim; see the [sham README](../models/sham/README.md).
 
-**Disable a module** by removing or commenting its line. Check the surrounding modules before doing this: many SAGE modules pass transport properties to later modules in the same phase (e.g. `sage_calculate_supernova_feedback` computes masses that `sage_apply_star_formation_supernova` commits).
+**Disable a module** by removing or commenting its line, and remove from `modules.parameters` the keys that only it read: Mimic refuses a parameter that no configured module reads ([Troubleshooting](#runtime-issues)). Check the surrounding modules before doing this: many SAGE modules pass transport properties to later modules in the same phase (e.g. `sage_calculate_supernova_feedback` computes masses that `sage_apply_star_formation_supernova` commits).
 
 ```yaml
 modules:
@@ -656,7 +655,7 @@ output:
 
 HDF5 is self-documenting and portable — field names, units, and run provenance travel inside the file. Binary is compact and fast; Mimic writes `metadata/output_schema.json` beside every run so binary readers can reconstruct the exact record layout used by that executable. The bundled `example_Mvir_Len_plot.py` in each output directory is a ready-to-run Python example configured for the exact output that was just written. If you move or sync binary outputs elsewhere, keep the `metadata/` directory with them.
 
-Consistent-Trees chunked output is configured with two optional output keys. `target_file_size_mb` is a soft size target in MiB (1024² bytes) for HDF5 chunk planning and defaults to 4096 (4 GiB). The planner estimates chunk size from input halo counts, so processed output can be larger when model physics creates orphans or when HDF5 compression and metadata change on-disk size. `forests_per_file` defaults to 0, which means derive chunks from `target_file_size_mb`; when set above 0, it gives an exact deterministic forest count per output chunk. These keys may live in `simulation_info.yaml` when the catalogue size requires a shared default across models, and the run file can override them. ASCII Consistent-Trees catalogues cannot estimate chunk sizes from `target_file_size_mb`, so `consistent_trees_ascii` requires `forests_per_file > 0` before processing starts. Existing chunks are resumable with `--skip`; a partial chunk is rejected so reruns do not mix complete and incomplete partition files.
+Consistent-Trees chunked output is configured with two optional output keys. `target_file_size_mb` is a soft size target in MiB (1024² bytes) for HDF5 chunk planning and defaults to 4096 (4 GiB). The planner estimates chunk size from input halo counts, so processed output can be larger when model physics creates orphans or when HDF5 compression and metadata change on-disk size. `forests_per_file` defaults to 0, which means derive chunks from `target_file_size_mb`; when set above 0, it gives an exact deterministic forest count per output chunk. These keys may live in `simulation_info.yaml` when the catalogue size requires a shared default across models, and the run file can override them. ASCII Consistent-Trees catalogues cannot estimate chunk sizes from `target_file_size_mb`, so `consistent_trees_ascii` requires `forests_per_file > 0` before processing starts. Existing chunks are resumable with `--skip`: a chunk whose output files all exist and that carries no in-flight marker is skipped, and a chunk still marked in flight is redone. The only partial chunk `--skip` refuses is a binary one (one file per output snapshot) found with some of its files present and no in-flight marker; the run stops with a message naming the partition.
 
 ```yaml
 output:
@@ -884,6 +883,8 @@ make clean && make
 ```
 
 **Run file rejected at startup (model/simulation mismatch)**: The executable was built for a different `MODEL`/`SIMULATION` pair than the run file selects. Rebuild with matching selectors, e.g. `make MODEL=sham SIMULATION=micro-uchuu-ascii-horizontal` for the SHAM run file.
+
+**Run file refused: "modules.parameters: '<Key>' is not read by any configured module"**: Every key under `modules.parameters` must be read by a module the run configures; the message names each one that is not. The usual causes are a misspelt key (compare it with the module's README), a key left over from a module removed from the phases, a key given twice (only the first is read), or a module missing from the phases. Fix the key or the pipeline and rerun. A `modules.parameters` value that is not a single value (a list or a mapping) and a `modules:` key given twice (two `parameters:` blocks, for example) are refused at startup too, naming the key.
 
 **Cannot open input files**: Check `input.simulation_dir`, `input.tree_name`, `input.first_file`, `input.last_file`, and `input.snapshot_list_file`. Mimic creates output directories but does not create or download missing input data during a normal run.
 

@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
@@ -39,6 +40,7 @@ from framework import (
     check_no_memory_leaks,
     load_binary_halos,
     run_test_suite,
+    shipped_run_file,
 )
 
 RUNS = SharedRuns()
@@ -133,9 +135,17 @@ RUN_FILE_PARAMS = {
     "ThresholdSatDisruption": 1.0,
 }
 
-# The output snapshots of the cold-gas cap run: the shipped run file's eight (the generated run
-# file otherwise writes only the last)
-CAP_SNAPSHOTS = [63, 37, 32, 27, 23, 20, 18, 16]
+# The output snapshots of the cold-gas cap run: the eight the shipped run file of the selected
+# simulation writes (the generated run file otherwise writes only the last). They are snapshot
+# indices of that simulation's a_list, so they differ by package: [63, 37, 32, 27, 23, 20, 18, 16]
+# for mini-Millennium, [49, 28, 23, 16, 12, 10, 8, 7] for micro-Uchuu.
+
+
+def _cap_snapshots():
+    """The shipped run file's output snapshot list for the selected simulation."""
+    with open(shipped_run_file()) as handle:
+        return [int(snapshot) for snapshot in yaml.safe_load(handle)["output"]["snapshot_list"]]
+
 
 # The metal reservoirs are allowed a rounding floor: the ejection debits metals at the central's
 # hot-gas metallicity with no cap, so a central whose hot gas all leaves keeps a float cancellation
@@ -244,25 +254,26 @@ def test_cold_gas_cap_without_supernova_calculator():
       ejected masses are zero, so no other reservoir is debited
 
     Pipeline: NO_CALCULATOR_PHASES at the shipped run file's parameters, writing the eight
-    snapshots of CAP_SNAPSHOTS.
+    snapshots of the shipped run file's list (see `_cap_snapshots`).
 
     Observed minimum ColdGas (output units, 1e10 Msun/h) over the eight written snapshots:
     -3.024462 before the cap (the case fails), 0.0 after it (the case passes).
     """
     require_mimic()
+    cap_snapshots = _cap_snapshots()
     run = RUNS.run(
         "no_calculator_cap",
         phase_config=NO_CALCULATOR_PHASES,
         model_params=RUN_FILE_PARAMS,
         substeps=1,
-        snapshot_list=CAP_SNAPSHOTS,
+        snapshot_list=cap_snapshots,
     )
     assert run.returncode == 0, f"Mimic should execute successfully\nSTDERR: {run.stderr}"
 
     output_files = sorted(run.output_dir.glob("model_z*_0"))
     assert len(output_files) == len(
-        CAP_SNAPSHOTS
-    ), f"Expected {len(CAP_SNAPSHOTS)} snapshot outputs, found {len(output_files)}"
+        cap_snapshots
+    ), f"Expected {len(cap_snapshots)} snapshot outputs, found {len(output_files)}"
 
     minimum_cold_gas = np.inf
     for output_file in output_files:

@@ -34,7 +34,9 @@ from framework import (
     SharedRuns,
     TestSkipped,
     check_no_memory_leaks,
+    default_run_file,
     load_binary_halos,
+    read_param_file,
     run_test_suite,
 )
 
@@ -55,10 +57,15 @@ BUDGET_CHAIN = {
 }
 BUDGET_PARAMS = {"GlobalBaryonFraction": 0.17, "CGMrecipeOn": 0}
 
-# SAGE26's tcool conversion: 1e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s with the
-# mini-millennium Hubble_h 0.73, SEC_PER_GIGAYEAR 3.155e16 and UnitTime_in_s 3.08568e19 (Mpc/h over
-# km/s); a mass-rate factor applied to a time, as SAGE26 does, so tcool is not a time in Gyr
-TCOOL_CONVERSION = 1.0e10 / 0.73 * 3.155e16 / 3.08568e19
+
+# SAGE26's tcool conversion: 1e10 / Hubble_h * SEC_PER_GIGAYEAR / UnitTime_in_s with
+# SEC_PER_GIGAYEAR 3.155e16 and UnitTime_in_s 3.08568e19 (Mpc/h over km/s); a mass-rate factor
+# applied to a time, as SAGE26 does, so tcool is not a time in Gyr. Hubble_h is the selected
+# simulation's (0.73 for mini-Millennium, 0.6774 for micro-Uchuu), as the module reads it.
+def tcool_conversion():
+    """SAGE26's tcool mass-rate factor for the selected simulation's Hubble_h."""
+    hubble_h = float(read_param_file(default_run_file())["Hubble_h"])
+    return 1.0e10 / hubble_h * 3.155e16 / 3.08568e19
 
 
 def budget_chain_galaxies():
@@ -105,7 +112,7 @@ def test_tcool_unit_conversion_on_orphans():
     print(f"  {len(orphans)} orphans with hot gas")
     assert len(orphans) > 0, "Some orphans should hold hot gas"
 
-    expected = orphans["Rvir"] / orphans["Vvir"] * TCOOL_CONVERSION
+    expected = orphans["Rvir"] / orphans["Vvir"] * tcool_conversion()
     assert np.allclose(orphans["tcool"], expected, rtol=1.0e-5), "tcool = Rvir / Vvir * factor"
 
 

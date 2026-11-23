@@ -68,7 +68,8 @@ def plot(
     # Define the sSFR cutoff for quiescent galaxies (same as in original code)
     sSFRcut = -11.0  # Log10 of specific SFR in yr^-1
 
-    # Define the stellar mass threshold for "group" scale halos (log10 Msun)
+    # Define the central halo mass (CentralMvir) threshold, log10 Msun, that splits satellites
+    # into those in lower-mass and those in higher-mass halos
     groupscale = 13.0
 
     # Filter for galaxies with non-zero stellar mass
@@ -117,8 +118,8 @@ def plot(
     fraction = []  # All galaxies
     central_fraction = []  # Central galaxies
     satellite_fraction = []  # Satellite galaxies
-    satellite_fraction_lo = []  # Satellites in low-mass halos
-    satellite_fraction_hi = []  # Satellites in high-mass halos
+    satellite_fraction_lo = []  # Quiescent, CentralMvir < groupscale, of all satellites
+    satellite_fraction_hi = []  # Quiescent, CentralMvir >= groupscale, of all satellites
 
     # Calculate fractions for each mass bin
     for i in range(nbins):
@@ -224,25 +225,26 @@ def plot(
     if np.any(mask):
         ax.plot(mass[mask], satellite_fraction[mask], "r-", label="Satellites")
 
-    # Satellites in low-mass halos
+    # Quiescent satellites in halos below the group scale, as a share of ALL satellites in the bin
     mask = satellite_fraction_lo > 0
     if np.any(mask):
         ax.plot(
             mass[mask],
             satellite_fraction_lo[mask],
             "r--",
-            label="Satellites (groups/clusters)",
+            label=r"Satellites in $M_{\rm vir} < 10^{13}\,M_\odot$ halos (of all satellites)",
             linewidth=0.8,
         )
 
-    # Satellites in high-mass halos
+    # Quiescent satellites in halos at or above the group scale, as a share of ALL satellites in
+    # the bin; this curve and the one above sum to the all-satellites curve
     mask = satellite_fraction_hi > 0
     if np.any(mask):
         ax.plot(
             mass[mask],
             satellite_fraction_hi[mask],
             "r-",
-            label="Satellites (field)",
+            label=r"Satellites in $M_{\rm vir} \geq 10^{13}\,M_\odot$ halos (of all satellites)",
             linewidth=0.8,
             dashes=[8, 3],
         )

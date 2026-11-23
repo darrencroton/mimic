@@ -417,6 +417,10 @@ int main(int argc, char **argv) {
     ERROR_LOG("Module system initialization failed");
     myexit(1);
   }
+  if (module_system_refuse_unread_parameters() != 0) {
+    ERROR_LOG("Run file refused: unread module parameters");
+    myexit(1);
+  }
   if (!get_verbose_format() && module_system_pipeline_count() > 0) {
     INFO_LOG("All physics modules initialised");
   }

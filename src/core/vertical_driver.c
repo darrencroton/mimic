@@ -46,7 +46,10 @@
  * myexit() under NTask > 1, which makes the same removal calls before MPI_Abort)
  * if the program exits with a failure in between, so a crash never leaves partial
  * output files behind and never deletes completed ones. Binary output has one
- * path per requested snapshot; HDF5 output has one path per partition.
+ * path per requested snapshot; HDF5 output has one path per partition. The registry
+ * only ever names files this run is about to claim: a --skip refusal of a partition whose
+ * files an earlier run left partly present clears it before it raises, so the failure
+ * exit leaves those files in place.
  *
  * The last entry is the partition's in-flight marker, <OutputDir>/<base>_<NNN>.inflight,
  * created before the outputs are claimed and unlinked once they are closed. A rank killed
@@ -406,7 +409,8 @@ static void process_partition(int output_id, struct ProgressBar *ext_bar, int64_
  * The partition's in-flight marker exists from just before its outputs are claimed until
  * they are closed, so a run stopped in between (killed, or aborted under MPI) leaves it
  * behind. Under --skip a marked partition is redone whatever its files hold; an unmarked one
- * is skipped when all its outputs exist and is fatal when only some do.
+ * is skipped when all its outputs exist and is fatal when only some do, in which case the
+ * earlier run's files are left on disk (the registry is cleared before the refusal).
  */
 static int claim_and_process_partition(int output_id, struct ProgressBar *ext_bar,
                                        int64_t tree_base,
@@ -432,6 +436,9 @@ static int claim_and_process_partition(int output_id, struct ProgressBar *ext_ba
         return 0;
       }
       if (existing_outputs > 0) {
+        /* The files found belong to an earlier run, not this one: this run created none of
+         * them, so the exit path (bye(), or myexit() under MPI) must not unlink them. */
+        vertical_driver_clear_current_output_paths();
         FATAL_ERROR("Partial output exists for partition %d (%d of %d files). Remove the partial "
                     "files or rerun without --skip.",
                     output_id, existing_outputs, noutputs);

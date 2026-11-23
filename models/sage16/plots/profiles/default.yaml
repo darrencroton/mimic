@@ -23,5 +23,3 @@ plots:
     - smf_evolution
     - sfr_density_evolution
     - stellar_mass_density_evolution
-
-mode: exploration

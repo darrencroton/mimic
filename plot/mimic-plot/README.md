@@ -173,9 +173,9 @@ The plot registry is model-specific: it lives in the active model package at `mo
 
 ### Snapshot Plots (Single Redshift)
 
-**Halo Property Plots** (always available):
+**Halo Property Plots** (need no physics modules; the `halos-only` registry carries all of them except `halo_occupation`):
 - `halo_mass_function`: Halo mass function showing abundance vs. mass
-- `halo_occupation`: Halo occupation distribution
+- `halo_occupation`: Halo occupation distribution (registered by `sage16` and `sage26` only)
 - `spin_distribution`: Distribution of halo spin parameters
 - `velocity_distribution`: Distribution of halo velocities
 - `spatial_distribution`: Spatial distribution of halos in simulation volume

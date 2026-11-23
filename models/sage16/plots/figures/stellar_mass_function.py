@@ -5,6 +5,9 @@ Mimic Stellar Mass Function Plot
 
 This module generates a stellar mass function plot from Mimic galaxy data.
 Requires: StellarMass property (from galaxy physics modules)
+
+The passive and star-forming curves split galaxies at a specific star formation rate of
+10^SSFR_CUT yr^-1; they are drawn only when StarFormationRate is available.
 """
 
 import numpy as np
@@ -25,7 +28,7 @@ STELLAR_MASS_MAX = 13.0  # log10(Msun) - maximum stellar mass
 BINWIDTH_DEX = 0.1  # Standard bin width in dex
 PLOT_XLIM = (8.0, 12.5)  # Plot x-axis limits
 PLOT_YLIM = (1.0e-6, 1.0e-1)  # Plot y-axis limits
-SSFR_CUT = -11.0  # log10(sSFR/yr^-1) cut between red and blue galaxies
+SSFR_CUT = -11.0  # log10(sSFR/yr^-1) cut: passive below, star-forming at or above
 
 
 def plot(
@@ -97,10 +100,10 @@ def plot(
 
     mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
 
-    # Check if we have SFR for red/blue separation
+    # Check if we have SFR for the passive/star-forming split
     has_sfr = optional.get("StarFormationRate", False)
 
-    # Calculate specific SFR for red/blue division (if SFR properties available)
+    # Calculate specific SFR for the passive/star-forming split (if SFR properties available)
     if has_sfr:
         sfr = galaxies.StarFormationRate[w]
         stellar_mass = galaxies.StellarMass[w] * 1.0e10 / hubble_h
@@ -122,25 +125,25 @@ def plot(
     # Plot stellar mass function
     ax.plot(xaxis, smf, "k-", label="Model - All")
 
-    # Add red/blue separation if SFR properties are available
+    # Add the passive/star-forming split if SFR properties are available
     if has_sfr:
-        # Red galaxies (passive)
+        # Passive galaxies, sSFR below the cut
         w_red = np.where(ssfr < 10.0**SSFR_CUT)[0]
         mass_red = mass[w_red]
         _, smf_red = calculate_mass_function(
             mass_red, volume, hubble_h, BINWIDTH_DEX, mass_min, STELLAR_MASS_MAX
         )
 
-        # Blue galaxies (star-forming)
+        # Star-forming galaxies, sSFR at or above the cut
         w_blue = np.where(ssfr >= 10.0**SSFR_CUT)[0]
         mass_blue = mass[w_blue]
         _, smf_blue = calculate_mass_function(
             mass_blue, volume, hubble_h, BINWIDTH_DEX, mass_min, STELLAR_MASS_MAX
         )
 
-        # Plot red and blue galaxy populations
-        ax.plot(xaxis, smf_red, "r:", lw=2, label="Model - Red")
-        ax.plot(xaxis, smf_blue, "b:", lw=2, label="Model - Blue")
+        # Plot the passive and star-forming populations
+        ax.plot(xaxis, smf_red, "r:", lw=2, label="Model - Passive")
+        ax.plot(xaxis, smf_blue, "b:", lw=2, label="Model - Star-forming")
 
     # Baldry, Glazebrook & Driver (2008), MNRAS 388, 945: z~0.1 field stellar
     # mass function. Columns: log10(M*) (Salpeter IMF; shifted -0.26 dex to

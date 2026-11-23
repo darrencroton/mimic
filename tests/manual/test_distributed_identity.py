@@ -5,7 +5,7 @@ Gate the distributed horizontal driver on per-UniqueGalaxyID identity with the s
 Usage::
 
     MODEL=<caller model> SIMULATION=<caller simulation> [MPIRUN="mpirun --oversubscribe"] \\
-        python tests/manual/test_distributed_identity.py [--only halos-only|sage16|sham|hod]
+        python tests/manual/test_distributed_identity.py [--only halos-only|sage16|sage26|sham|hod]
 
 ``make tests-distributed`` runs it. ``--only`` (repeatable) is a development aid: a filtered run
 is not the gate, so it ends with a ``PARTIAL:`` summary and exit status 3 even when every check
@@ -22,8 +22,9 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    ``build/generated/git_version.h`` (the test file stubs the running-callback accessor as NONE;
    ``module_registry.c`` is not linked), and run at ``-np 3`` under a timeout; all
    ``CONTROL_CASES`` cases must pass, so a case removed from the test fails the gate.
-2. For each of ``halos-only``, ``sage16``, ``sham`` and ``hod`` on ``mini-millennium-horizontal``
-   (the committed ``forest_blocks`` fixture, six forests over seven gapped snapshots, through
+2. For each of ``halos-only``, ``sage16``, ``sage26``, ``sham`` and ``hod`` on
+   ``mini-millennium-horizontal`` (the committed ``forest_blocks`` fixture, six forests over seven
+   gapped snapshots, through
    ``simulations/mini-millennium-horizontal/_tests/input/forest_blocks_<model>.yaml``):
    build the non-MPI binary and run the fixture serially (for ``sham`` the serial ``SHAM audit``
    lines must each show ``assigned >= 1`` and ``masked >= 1``); build with ``USE-MPI=yes`` and run
@@ -43,11 +44,11 @@ Steps, each reported as ``MIMIC_RESULT:`` markers and gated:
    ``USE-MPI`` in the environment removed, so the serial reference is non-MPI whatever the caller
    exported (the Makefile enables MPI for any non-empty value).
 3. Chunked legs (``input.forest_chunks``, set by editing the parsed run file) for ``halos-only``,
-   ``sage16`` and ``hod``: with the non-MPI binary, serial runs at ``forest_chunks`` 2, 3 and 8
-   (run directories ``chunks<G>``), and with the MPI binary, ``-np 2`` at ``forest_chunks: 2`` and
-   ``-np 3`` at ``forest_chunks: 3`` (``np2_chunks2``, ``np3_chunks3``). Each is compared with the
-   serial ``forest_chunks: 1`` run through the comparator with the same identity,
-   ``galaxies_compared_`` and (for ``hod``) ``created_rows_compared_`` markers as the rank counts;
+   ``sage16``, ``sage26`` and ``hod``: with the non-MPI binary, serial runs at ``forest_chunks`` 2,
+   3 and 8 (run directories ``chunks<G>``), and with the MPI binary, ``-np 2`` at
+   ``forest_chunks: 2`` and ``-np 3`` at ``forest_chunks: 3`` (``np2_chunks2``, ``np3_chunks3``).
+   Each is compared with the serial ``forest_chunks: 1`` run through the comparator with the same
+   identity, ``galaxies_compared_`` and (for ``hod``) ``created_rows_compared_`` markers as the rank counts;
    every chunked run must also hold, for every snapshot, the reference's ``UniqueGalaxyID`` column
    in the same file order (``row_order_``; an MPI run's task partitions are concatenated in task
    order, since tasks own ascending forest ranges); each MPI chunked run also gets the task-layout
@@ -118,11 +119,11 @@ from framework.battery import (  # noqa: E402
 )
 from framework.fs import remove_tree  # noqa: E402
 
-MODELS = ("halos-only", "sage16", "sham", "hod")
+MODELS = ("halos-only", "sage16", "sage26", "sham", "hod")
 # Models with chunked legs; models whose fixture run file is refused under chunking (it configures
 # modules.post_snapshot); and the variant run file whose chunked legs stand in for a refused one
 # (hod without its audit, so its full-halo creation path is gated). sham has no chunkable form.
-CHUNKED_MODELS = ("halos-only", "sage16", "hod")
+CHUNKED_MODELS = ("halos-only", "sage16", "sage26", "hod")
 CHUNK_REFUSED_MODELS = ("sham", "hod")
 CHUNKED_RUN_FILE = {"hod": "forest_blocks_hod_chunked.yaml"}
 WORK_ROOT = REPO_ROOT / "output" / "distributed-identity" / "gate"

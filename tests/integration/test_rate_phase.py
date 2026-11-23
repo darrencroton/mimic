@@ -119,8 +119,9 @@ FAULTS_RATE = 1.0
 SUPPLY_INIT_LINE = "Test rate supply fixture initialized"
 
 # The discrete jump (src/module_system/test_rate_jump): a full-halo module in a discrete phase
-# after the rate phase, merging satellites whose stars exceed the threshold into the central.
-# The threshold is low enough that satellites of the committed fixture merge.
+# after the rate phase, merging orphan satellites (Type 2 rows) whose RateFixtureStars exceed the
+# threshold into the central. JUMP_THRESHOLD is that lower bound on the stars, in internal mass
+# units, low enough that some orphans exceed it; a Type 1 satellite never merges.
 JUMP_MODULE = "test_rate_jump"
 JUMP_PHASE = "jumps"
 JUMP_THRESHOLD = 1.0e-9
@@ -456,7 +457,11 @@ def _fault_phase():
 
 
 def _fault_params(law):
-    params = dict(RATE_PARAMS)
+    """The parameters of _fault_phase(): the supply fixture's and the injector's; Mimic refuses
+    a key no configured module reads."""
+    params = {
+        name: value for name, value in RATE_PARAMS.items() if name.startswith("TestRateSupply")
+    }
     params.update({"TestRateFaultsLaw": law, "TestRateFaultsRate": FAULTS_RATE})
     return params
 
@@ -596,8 +601,14 @@ def test_purity_probe_leaves_output_unchanged():
 
 
 def _jump_params(loss, faults=False):
+    """The rate fixtures' parameters, test_rate_jump's two keys when loss is given (None leaves
+    them out, for a run that does not configure the jump module), and test_rate_faults' when
+    faults."""
     params = dict(RATE_PARAMS)
-    params.update({"TestRateJumpStarsThreshold": JUMP_THRESHOLD, "TestRateJumpLossFraction": loss})
+    if loss is not None:
+        params.update(
+            {"TestRateJumpStarsThreshold": JUMP_THRESHOLD, "TestRateJumpLossFraction": loss}
+        )
     if faults:
         params.update(_fault_params("well_behaved"))
         params["TestRateFaultsAddedMass"] = 1.0e-3
@@ -746,7 +757,7 @@ def test_lossy_jump_is_counted():
 def test_undeclared_change_is_fatal():
     """test_rate_faults adding mass undeclared in a discrete phase ends the run, naming both."""
     phase_config = {**_rate_phase(), "kicks": [(FAULTS_MODULE, "process_full_halo")]}
-    params = _jump_params(0.0, faults=True)
+    params = _jump_params(None, faults=True)
     returncode, log, _ = _run("undeclared", phase_config, model_params=params)
     assert returncode != 0, "an undeclared change to a conserved total was accepted"
     fragment = (

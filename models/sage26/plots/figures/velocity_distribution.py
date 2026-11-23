@@ -3,7 +3,9 @@
 """
 Mimic Velocity Distribution Plot
 
-This module generates a plot showing the distribution of galaxy velocities.
+This module generates a plot showing the distribution of the line-of-sight and x, y and z
+components of galaxy peculiar velocities, each divided by H0 = 100 h km/s/Mpc so that the axis is a
+distance in Mpc.
 """
 
 import numpy as np

@@ -1568,6 +1568,14 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
                   "phases, post_timestep, post_snapshot, rate_integration, parameters",
                   key_name);
     }
+    /* get_mapping_value() returns the first match, so a repeated key would have its second
+     * value ignored without a word (a second `parameters:` would escape the unread check) */
+    for (yaml_node_pair_t *earlier = section->data.mapping.pairs.start; earlier < pair; earlier++) {
+      const char *earlier_name = get_scalar_value(yaml_document_get_node(doc, earlier->key));
+      if (earlier_name != NULL && strcmp(earlier_name, key_name) == 0) {
+        FATAL_ERROR("Key 'modules.%s' appears more than once", key_name);
+      }
+    }
   }
 
   /* Middle phases: an ordered mapping of user-named phases under 'phases:'.
@@ -1644,16 +1652,20 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
       const char *param_name = get_scalar_value(key_node);
       const char *param_value = get_scalar_value(value_node);
 
-      if (param_name && param_value) {
-        if (idx >= MAX_MODEL_PARAMS) {
-          FATAL_ERROR("modules.parameters has more than %d entries", MAX_MODEL_PARAMS);
-        }
-        /* Store in ModelParams array */
-        strncpy(MimicConfig.ModelParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
-        strncpy(MimicConfig.ModelParams[idx].value, param_value, MAX_STRING_LEN - 1);
-        DEBUG_LOG("Module parameter: %s = %s", param_name, param_value);
-        idx++;
+      if (param_name == NULL) {
+        FATAL_ERROR("modules.parameters: every key must be a plain name");
       }
+      if (param_value == NULL) {
+        FATAL_ERROR("modules.parameters: '%s' must have a scalar value", param_name);
+      }
+      if (idx >= MAX_MODEL_PARAMS) {
+        FATAL_ERROR("modules.parameters has more than %d entries", MAX_MODEL_PARAMS);
+      }
+      /* Store in ModelParams array */
+      strncpy(MimicConfig.ModelParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
+      strncpy(MimicConfig.ModelParams[idx].value, param_value, MAX_STRING_LEN - 1);
+      DEBUG_LOG("Module parameter: %s = %s", param_name, param_value);
+      idx++;
     }
 
     MimicConfig.NumModelParams = idx;

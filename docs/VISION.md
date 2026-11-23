@@ -115,6 +115,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Generated code gives modules typed access to declared properties.
 - Module metadata validation catches missing files, invalid processing modes, unknown property dependencies, and event wiring mistakes.
 - Module parameter validation happens in module `init()` because only the module knows its physical constraints.
+- A run-file model parameter that no configured module reads is refused at startup, so a misspelt or stale key cannot be silently ignored.
 - Failing tests are treated as real problems, not documentation or test-suite noise.
 
 **In practice**: `make MODEL=<name> SIMULATION=<name> validate-modules`, `make MODEL=<name> SIMULATION=<name> check-generated`, and startup validation provide fast feedback before a long scientific run begins.
@@ -123,8 +124,8 @@ These principles guide design decisions and implementation choices in Mimic.
 
 ## Data Flow
 
-1. **Configuration loading**: The input YAML is parsed into runtime configuration, including output settings, input tree settings, simulation units, cosmology, module phases, and model parameters.
-2. **Metadata generation**: Property and module metadata for the selected model and simulation generate C structs, output metadata writers, module registration, event identifiers, the reservoir table, and each rate module's transfer tables.
+1. **Metadata generation (build time)**: Before any run file is read, the build (`make`, or `make generate` alone) turns the property and module metadata for the selected model and simulation into C structs, output metadata writers, module registration, event identifiers, the reservoir table, and each rate module's transfer tables. The steps below happen at run time, in the compiled executable.
+2. **Configuration loading**: The input YAML is parsed into runtime configuration, including output settings, input tree settings, simulation units, cosmology, module phases, and model parameters.
 3. **Module registration**: The generated registry registers available runtime modules and their supported modes.
 4. **Pipeline validation**: The configured phases are checked against registered modules, supported modes, event contracts, and, for a rate phase, the declared transfers.
 5. **Tree processing**: The core loads merger trees and builds FoF workspaces for each snapshot interval.

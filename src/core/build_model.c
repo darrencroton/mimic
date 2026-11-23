@@ -175,24 +175,17 @@ static void build_halo_tree_from_view(struct HaloInputView view, int64_t halonr,
 }
 
 /**
- * @brief   Finds the most massive progenitor halo that contains an object
+ * @brief   Chooses the main progenitor, whose Type 0 and 1 objects take the descendant
+ *          halo's properties
  *
  * @param   view      Input view over this unit's raw halos
  * @param   halonr    Index of the current halo in the Halo array
- * @return  Index of the most massive progenitor with an object
+ * @return  Index of the chosen progenitor, or -1 for a halo with no progenitor
  *
- * This function scans all progenitors of a halo to find the most massive one
- * that actually contains an object. This is important because not all dark
- * matter halos necessarily host objects, and we need to identify the main
- * branch for inheriting object properties.
- *
- * Two criteria are tracked:
- * 1. The most massive progenitor overall (by particle count)
- * 2. The most massive progenitor that contains an object
- *
- * The function returns the index of the most massive progenitor containing an
- * object, which is used to determine which object should become the central
- * of the descendant halo.
+ * A progenitor is occupied when it holds at least one object. If FirstProgenitor
+ * is occupied it is chosen, whatever the other progenitors' sizes. Otherwise the
+ * occupied progenitor with the largest Len is chosen (the earlier in the
+ * NextProgenitor chain on a tie), and if none is occupied, FirstProgenitor.
  */
 int64_t find_most_massive_progenitor(struct HaloInputView view, int64_t halonr) {
   int64_t prog, first_occupied;
@@ -220,29 +213,11 @@ int64_t find_most_massive_progenitor(struct HaloInputView view, int64_t halonr) 
 }
 
 /**
- * @brief   Copies and updates halos from progenitor halos to the current
- * snapshot
+ * @brief   Counts the objects held by all progenitors of a halo
  *
- * @param   halonr          Index of the current halo in the Halo array
- * @param   ngalstart       Starting index for halos in the Gal array
- * @param   first_occupied  Index of the most massive progenitor with halos
- * @param   tree            Index of the current merger tree
- * @param   filenr          File number in multi-file run
- * @return  Updated number of halos after copying
- *
- * This function transfers halos from progenitor halos to the current
- * snapshot, updating their properties based on the new halo structure. It
- * handles:
- *
- * 1. Copying halos from all progenitors to the temporary Gal array
- * 2. Updating object properties based on their new host halo
- * 3. Handling type transitions (central → satellite → orphan)
- * 4. Setting appropriate merger times for satellites
- * 5. Creating new halos when a halo has no progenitor halos
- *
- * The function maintains the continuity of object evolution by preserving
- * their properties while updating their status based on the evolving
- * dark matter structures.
+ * @param   view      Input view over this unit's raw halos
+ * @param   halonr    Index of the current halo in the Halo array
+ * @return  Sum of HaloAux[].NHalos over the halo's progenitor chain
  */
 static int64_t count_progenitor_galaxies(struct HaloInputView view, int64_t halonr) {
   int64_t count = 0;

@@ -71,8 +71,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # SMD observations from Marchesini+ 2009, h=0.7
     # Values are (minz, maxz, rho, -err, +err)
 
-    # Dickenson 2003
-    dickenson2003 = np.array(
+    # Dickinson 2003
+    dickinson2003 = np.array(
         [
             (0.6, 1.4, 8.26, 0.08, 0.08),
             (1.4, 2.0, 7.86, 0.22, 0.33),
@@ -165,7 +165,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Combine all observations
     obs = [
-        dickenson2003,
+        dickinson2003,
         drory2005,
         pg2008,
         glazebrook2004,

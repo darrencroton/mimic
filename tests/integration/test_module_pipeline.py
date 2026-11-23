@@ -257,6 +257,72 @@ def test_module_init_failure_handling():
         ), "No output files should be created on init failure"
 
 
+def _repeat_parameters_block(param_file):
+    """Rewrite a generated run file so that modules has two `parameters:` keys.
+
+    yaml.dump cannot write a repeated key, so the header line is repeated in the text: the first
+    `parameters:` is left empty and the second holds the keys.
+    """
+    text = Path(param_file).read_text()
+    header = "\n  parameters:\n"
+    assert text.count(header) == 1, "the generated run file should have one parameters block"
+    Path(param_file).write_text(text.replace(header, header + header.lstrip("\n"), 1))
+
+
+def test_unread_or_malformed_model_parameters_are_refused():
+    """
+    Test that a modules.parameters entry Mimic would otherwise ignore stops the run at startup.
+
+    Expected: per row, non-zero exit, the message names the key, and nothing is written.
+    Validates: VISION.md Principle 7 -- a misspelt parameter name, a value that is not a scalar
+    and a repeated modules.parameters block (whose second copy would never be read) are errors
+    before any processing, never silently ignored entries.
+    """
+    valid = {"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 0}
+    rows = [
+        # (label, parameters, edit of the written run file, message that must appear)
+        (
+            "misspelt key",
+            {**valid, "TestFixtureEnableLoging": 0},  # a letter dropped from the real key
+            None,
+            "'TestFixtureEnableLoging' is not read by any configured module",
+        ),
+        (
+            "non-scalar value",
+            {**valid, "TestFixtureEnableLogging": [0]},
+            None,
+            "'TestFixtureEnableLogging' must have a scalar value",
+        ),
+        (
+            "repeated parameters block",
+            valid,
+            _repeat_parameters_block,
+            "'modules.parameters' appears more than once",
+        ),
+    ]
+    for label, parameters, edit_run_file, expected in rows:
+        param_file, output_dir, _ = create_test_param_file(
+            output_name="refused_" + label.replace(" ", "_"),
+            phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
+            model_params=parameters,
+            first_file=0,
+            last_file=0,
+            temp_dir=TEMP_DIR,
+        )
+        if edit_run_file is not None:
+            edit_run_file(param_file)
+
+        returncode, stdout, stderr = run_mimic(param_file)
+
+        combined_output = stdout + stderr
+        assert returncode != 0, f"{label}: Mimic should refuse the run file"
+        assert (
+            expected in combined_output
+        ), f"{label}: the message should contain {expected!r}:\n{combined_output[-2000:]}"
+        written = list(output_dir.iterdir()) if output_dir.exists() else []
+        assert not written, f"{label}: nothing should be written, found {written}"
+
+
 def main():
     """Run this file's tests via the shared framework runner."""
     global TEMP_DIR
@@ -277,6 +343,7 @@ def main():
                 test_unknown_module_error,
                 test_module_execution_order,
                 test_module_init_failure_handling,
+                test_unread_or_malformed_model_parameters_are_refused,
             ],
             "Module Pipeline (test_module_pipeline.py)",
         )

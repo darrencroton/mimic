@@ -513,8 +513,8 @@ help:
 	@echo "  make tests-snapshot-global-sham - Run the sham_rank_match unit and end-to-end tests under MODEL=sham on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-hod - Run the hod_populate unit and end-to-end tests under MODEL=hod on the micro-uchuu-ascii-horizontal fixture"
 	@echo "  make tests-snapshot-global-identity - Compare disabled-mode post_snapshot output with the pinned pre-feature reference commit (cached worktrees; about a minute; REFERENCE_COMMIT=<hash> overrides)"
-	@echo "  make tests-reference-identity REFERENCE_COMMIT=<hash> - Require byte-identical galaxy output between an ancestor commit and HEAD on real mini-Millennium (manual, 8 legs; the byte gate for performance work; REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS/_LDFLAGS gate a candidate build)"
-	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
+	@echo "  make tests-reference-identity REFERENCE_COMMIT=<hash> - Require byte-identical galaxy output between an ancestor commit and HEAD on real mini-Millennium (manual, 12 legs; the reference must carry halos-only, sage16 and sage26 with HEAD's run files; the byte gate for performance work; REFERENCE_IDENTITY_HEAD_EXTRA_CFLAGS/_LDFLAGS gate a candidate build)"
+	@echo "  make tests-distributed  - Run the distributed horizontal gate: the MPI collectives control test, serial-versus-MPI identity at -np 1, 2, 3, 4 and 8 for halos-only, sage16, sage26, sham and hod, chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only, sage16, sage26 and hod, with the sham/hod chunked refusal); needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; a few minutes; rebuild with make afterwards"
 	@echo "  make tests-rate         - Run the rate battery: the rate fixtures and test_rate_jump on halos-only, vertical against horizontal on the committed mini-Millennium tree file and its conversion (explicit fixed and dynamic, implicit fixed, and explicit with the rate coefficients scaled by 1e3) and the horizontal run in three orders of the rate modules, then on the forest_blocks fixture serial against -np 1, 2, 3, 4, 8 and forest_chunks 2, 3, 8, every order of the four rate modules under both schemes, and record creation (created rows with non-zero fixture state) across task counts; needs mpicc/mpirun; MPIRUN=\"mpirun --oversubscribe\" for fewer cores; rebuild with make afterwards. The integrator cost driver is separate: python3 tests/manual/run_rate_cost.py (needs a built tree)"
 	@echo "  make tests-converter    - Run the converter self-tests (manual, ~6 min; not run by make tests)"
 	@echo "  make tests-bench        - Run the bench self-tests (manual, ~5 min; the capture tests need ./mimic built and the mini-millennium trees and otherwise skip; not run by make tests)"
@@ -949,10 +949,10 @@ tests-snapshot-global-hod:
 	@$(SG_RUNNER) --only hod
 
 # Distributed identity gate (tests/manual/test_distributed_identity.py has the steps): the MPI
-# control test of the snapshot collectives, then halos-only, sage16, sham and hod on the
+# control test of the snapshot collectives, then halos-only, sage16, sage26, sham and hod on the
 # committed forest_blocks fixture, serial against USE-MPI=yes at -np 1, 2, 3, 4 and 8, the
 # chunked legs (input.forest_chunks 2, 3, 8 serial and -np 2 x 2, -np 3 x 3 for halos-only,
-# sage16 and the hod variant without its audit; sham and the shipped hod run file refused).
+# sage16, sage26 and the hod variant without its audit; sham and the shipped hod run file refused).
 # Needs mpicc/mpirun; MPIRUN (environment, default mpirun) is the launcher,
 # e.g. MPIRUN="mpirun --oversubscribe" on a machine with fewer than 8 cores. Writes
 # build/distributed_tests.log, restores the caller's generated code; rebuild with `make` after.
@@ -966,7 +966,7 @@ tests-snapshot-global-identity:
 	@$(PYTHON) tests/manual/test_snapshot_disabled_identity.py
 
 # Manual byte identity of HEAD against a required ancestor commit (REFERENCE_COMMIT=<hash>) on the
-# real mini-Millennium data, both drivers, both models, fixed and dynamic timestepping; writes
+# real mini-Millennium data, both drivers, halos-only, sage16 and sage26, fixed and dynamic timestepping; writes
 # build/reference_identity.log itself.
 tests-reference-identity:
 	@$(PYTHON) tests/manual/test_reference_identity.py

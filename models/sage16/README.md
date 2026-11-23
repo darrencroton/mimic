@@ -29,7 +29,7 @@ Measured on mini-Millennium against the original SAGE code (`sage-home/sage-mode
 ## Package Contents
 
 - `model_properties.yaml`: sage16 galaxy/model property metadata. Edit this when adding, removing, or changing model-owned galaxy properties, then run `make MODEL=sage16 generate`.
-- `input/`: User-facing run parameter YAML files for all supported simulations: mini-Millennium, full Millennium, micro-Uchuu (L-Halo binary, HDF5 forests, ASCII), mini-Uchuu, and full Uchuu.
+- `input/`: User-facing run parameter YAML files, one per simulation package, named `sage16_<simulation>.yaml`: the vertical packages mini-Millennium, full Millennium, micro-Uchuu (L-Halo binary, HDF5 forests, ASCII), mini-Uchuu, full Uchuu and Shin-Uchuu (cut, L-Halo binary), and the horizontal packages mini-Millennium, Millennium, micro-Uchuu (L-Halo, HDF5 forests, ASCII), mini-Uchuu and Shin-Uchuu (ASCII).
 - `modules/`: Runtime physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
 - `modules/_tests/`: Shared cross-module tests: module dependency and parameter contracts at initialisation, processing modes, per-object timestep parity, the full-physics regression baseline and the comparator self-test (see its README).
 - `shared/`: Model-local helper headers (physics kernels, parity helpers, shared constants). These are not framework APIs; copy or reimplement them in another model package if needed. Event contracts are generated from each module's `module_info.yaml`.
